@@ -7,7 +7,6 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Spinner from './components/Spinner';
 import ChatBot from './components/ChatBot';
-import AiAssistant from './components/AiAssistant';
 import FloatingIcons from './components/FloatingIcons';
 import NotificationPrompt from './components/NotificationPrompt';
 import SubscribePrompt from './components/SubscribePrompt';
@@ -50,6 +49,9 @@ const StudentForgot = lazy(() => import('./pages/student/StudentForgot'));
 const StudentReset = lazy(() => import('./pages/student/StudentReset'));
 const StudentAccount = lazy(() => import('./pages/student/StudentAccount'));
 const CoursePlayer = lazy(() => import('./pages/student/CoursePlayer'));
+const Community = lazy(() => import('./pages/Community'));
+const CommunityAdmin = lazy(() => import('./pages/admin/CommunityAdmin'));
+const NotificationsAdmin = lazy(() => import('./pages/admin/NotificationsAdmin'));
 
 function FullLoader() {
   return (
@@ -118,6 +120,8 @@ export default function App() {
           <Route path="payments" element={<Suspense fallback={<Loader />}><PaymentsAdmin /></Suspense>} />
           <Route path="bookings" element={<Suspense fallback={<Loader />}><BookingsAdmin /></Suspense>} />
           <Route path="materials" element={<Suspense fallback={<Loader />}><MaterialsAdmin /></Suspense>} />
+          <Route path="community" element={<Suspense fallback={<Loader />}><CommunityAdmin /></Suspense>} />
+          <Route path="notifications" element={<Suspense fallback={<Loader />}><NotificationsAdmin /></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<Loader />}><SettingsAdmin /></Suspense>} />
           <Route path="security" element={<Suspense fallback={<Loader />}><SecurityAdmin /></Suspense>} />
         </Route>
@@ -149,6 +153,7 @@ function PublicLayout() {
           <Route path="/student/account" element={<Suspense fallback={<FullLoader />}><StudentProtectedRoute><StudentAccount /></StudentProtectedRoute></Suspense>} />
           <Route path="/student/course/:id" element={<Suspense fallback={<FullLoader />}><StudentProtectedRoute><CoursePlayer /></StudentProtectedRoute></Suspense>} />
           <Route path="/student/materials" element={<Suspense fallback={<FullLoader />}><StudentProtectedRoute><StudentMaterials /></StudentProtectedRoute></Suspense>} />
+          <Route path="/community" element={<Suspense fallback={<FullLoader />}><Community /></Suspense>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
@@ -157,7 +162,6 @@ function PublicLayout() {
       <NotificationPrompt />
       <SubscribePrompt />
       <ChatBot />
-      <AiAssistant />
     </>
   );
 }

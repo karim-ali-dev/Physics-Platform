@@ -8,14 +8,19 @@ export default function Atom3D({ className = '' }) {
     const mount = mountRef.current;
     if (!mount) return;
 
+    const weakDevice =
+      (typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+      (typeof navigator !== 'undefined' && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+      (typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches);
+
     let renderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      renderer = new THREE.WebGLRenderer({ antialias: !weakDevice, alpha: true, powerPreference: 'low-power' });
     } catch (_) {
       return;
     }
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, weakDevice ? 1 : 1.5));
     renderer.setSize(mount.clientWidth || 300, mount.clientHeight || 300);
     mount.appendChild(renderer.domElement);
 
@@ -26,7 +31,7 @@ export default function Atom3D({ className = '' }) {
     const disposables = [];
 
     const nucleus = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(1.3, 2),
+      new THREE.IcosahedronGeometry(1.3, weakDevice ? 1 : 2),
       new THREE.MeshStandardMaterial({ color: 0x14b8a6, emissive: 0x0d9488, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.4 })
     );
     disposables.push(nucleus.geometry, nucleus.material);
@@ -42,7 +47,7 @@ export default function Atom3D({ className = '' }) {
     ];
     const electrons = [];
     rings.forEach((ring, i) => {
-      const ringGeo = new THREE.TorusGeometry(ring.r, 0.02, 8, 120);
+      const ringGeo = new THREE.TorusGeometry(ring.r, 0.02, 8, weakDevice ? 64 : 96);
       const ringMat = new THREE.MeshBasicMaterial({ color: ring.color, transparent: true, opacity: 0.4 });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.rotation.x = ring.tilt;
@@ -50,7 +55,7 @@ export default function Atom3D({ className = '' }) {
       disposables.push(ringGeo, ringMat);
       group.add(ringMesh);
 
-      const eGeo = new THREE.SphereGeometry(0.22, 16, 16);
+      const eGeo = new THREE.SphereGeometry(0.22, weakDevice ? 10 : 14, weakDevice ? 10 : 14);
       const eMat = new THREE.MeshStandardMaterial({ color: ring.color, emissive: ring.color, emissiveIntensity: 1 });
       const e = new THREE.Mesh(eGeo, eMat);
       const angle = (i * Math.PI * 2) / 3;
@@ -65,10 +70,12 @@ export default function Atom3D({ className = '' }) {
     light.position.set(4, 5, 6);
     scene.add(light);
 
-    let raf;
+    let raf = 0;
+    let running = true;
     const clock = new THREE.Clock();
     const animate = () => {
       raf = requestAnimationFrame(animate);
+      if (!running) return;
       const t = clock.getElapsedTime();
       nucleus.rotation.y = t * 0.3;
       nucleus.rotation.x = t * 0.2;
@@ -98,8 +105,16 @@ export default function Atom3D({ className = '' }) {
     const ro = new ResizeObserver(onResize);
     ro.observe(mount);
 
+    /* وقف الرندر لما الصفحة متكنش ظاهرة أو العنصر برّه الشاشة */
+    const onVisibility = () => { running = document.visibilityState === 'visible'; };
+    const io = new IntersectionObserver(([entry]) => { running = entry.isIntersecting; }, { rootMargin: '100px' });
+    io.observe(mount);
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
       cancelAnimationFrame(raf);
+      io.disconnect();
+      document.removeEventListener('visibilitychange', onVisibility);
       ro.disconnect();
       disposables.forEach((d) => d.dispose());
       renderer.dispose();

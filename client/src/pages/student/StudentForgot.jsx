@@ -46,9 +46,9 @@ export default function StudentForgot() {
           <CheckCircle2 size={17} /> {message}
         </div>
       )}
-      {devLink && (
+      {import.meta.env.DEV && devLink && (
         <div className="mb-5 rounded-xl border border-brand-500/30 bg-brand-500/10 p-4">
-          <div className="mb-1 text-xs font-bold text-brand-300">وضع التطوير — الرابط:</div>
+          <div className="mb-1 text-xs font-bold text-brand-300">الرابط (يظهر في وضع التطوير فقط ولا يظهر للزوار):</div>
           <a href={devLink} className="break-all text-sm text-brand-200 underline" dir="ltr">{devLink}</a>
         </div>
       )}

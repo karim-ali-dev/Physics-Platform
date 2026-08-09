@@ -11,27 +11,8 @@ function isoToDisplay(iso) {
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function sendCsv(res, filename, columns, rows) {
-  const esc = (v) => {
-    let s = v == null ? '' : String(v);
-    if (/^[=+\-@]/.test(s)) s = "'" + s;
-    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const body = [columns.map((c) => c.header), ...rows]
-    .map((r) => r.map(esc).join(';'))
-    .join('\r\n');
-  const content = '\uFEFF' + body;
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename + '.csv')}`);
-  res.send(content);
-}
-
-async function sendXlsx(res, filename, sheet, columns, rows) {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'Physics Platform';
-  wb.created = new Date();
-  const ws = wb.addWorksheet(sheet || 'البيانات', { views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }] });
-
+function addSheet(ws, columns, rows) {
+  ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: 1 }];
   ws.columns = columns.map((c) => ({ width: c.width || 18 }));
 
   const headerRow = ws.addRow(columns.map((c) => c.header));
@@ -59,7 +40,33 @@ async function sendXlsx(res, filename, sheet, columns, rows) {
       to: { row: rows.length + 1, column: columns.length }
     };
   }
+}
 
+function buildWorkbook({ sheets }) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Physics Platform';
+  wb.created = new Date();
+  sheets.forEach((s) => addSheet(wb.addWorksheet(s.name || 'البيانات'), s.columns, s.rows));
+  return wb;
+}
+
+function sendCsv(res, filename, columns, rows) {
+  const esc = (v) => {
+    let s = v == null ? '' : String(v);
+    if (/^[=+\-@]/.test(s)) s = "'" + s;
+    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const body = [columns.map((c) => c.header), ...rows]
+    .map((r) => r.map(esc).join(';'))
+    .join('\r\n');
+  const content = '\uFEFF' + body;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename + '.csv')}`);
+  res.send(content);
+}
+
+async function sendXlsx(res, filename, sheets) {
+  const wb = buildWorkbook({ sheets });
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename + '.xlsx')}`);
   await wb.xlsx.write(res);
@@ -68,7 +75,11 @@ async function sendXlsx(res, filename, sheet, columns, rows) {
 
 async function sendSpreadsheet(res, format, { filename, sheet, columns, rows }) {
   if (format === 'csv') return sendCsv(res, filename, columns, rows);
-  return sendXlsx(res, filename, sheet, columns, rows);
+  return sendXlsx(res, filename, [{ name: sheet || 'البيانات', columns, rows }]);
 }
 
-module.exports = { sendSpreadsheet, isoToDisplay };
+async function sendWorkbook(res, filename, sheets) {
+  return sendXlsx(res, filename, sheets);
+}
+
+module.exports = { sendSpreadsheet, sendWorkbook, isoToDisplay };

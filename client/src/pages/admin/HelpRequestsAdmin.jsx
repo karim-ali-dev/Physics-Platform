@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Image as ImageIcon, CheckCheck, Loader2, MailQuestion } from 'lucide-react';
+import { Image as ImageIcon, CheckCheck, Loader2, MailQuestion, Send } from 'lucide-react';
 import { api } from '../../api';
 import { PageHeader, ConfirmDelete, Empty, Alert } from '../../components/admin/ui';
 import Spinner from '../../components/Spinner';
@@ -17,6 +17,7 @@ export default function HelpRequestsAdmin() {
   const [filter, setFilter] = useState('all');
   const [busyId, setBusyId] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [replyText, setReplyText] = useState({});
 
   const load = () => {
     api(`/api/admin/help-requests${filter === 'all' ? '' : `?status=${filter}`}`)
@@ -37,6 +38,21 @@ export default function HelpRequestsAdmin() {
     setMsg('تم حذف الطلب');
     setTimeout(() => setMsg(null), 2500);
     load();
+  };
+
+  const reply = async (id) => {
+    const text = (replyText[id] || '').trim();
+    if (!text) return;
+    setBusyId(id);
+    try {
+      await api(`/api/admin/help-requests/${id}/reply`, { method: 'POST', body: JSON.stringify({ reply: text }) });
+      setMsg('وصل ردك للطالب ✅');
+      setReplyText((s) => ({ ...s, [id]: '' }));
+      setTimeout(() => setMsg(null), 2500);
+      load();
+    } finally {
+      setBusyId(null);
+    }
   };
 
   return (
@@ -95,6 +111,36 @@ export default function HelpRequestsAdmin() {
                       {r.contact && <span>📞 {r.contact}</span>}
                     </div>
                   )}
+
+                  {r.replies && r.replies.length > 0 && (
+                    <div className="mt-4 space-y-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                      <div className="text-[11px] font-extrabold text-emerald-300">💬 ردودك اللي وصلت للطالب</div>
+                      {r.replies.map((rp) => (
+                        <div key={rp.id} className="rounded-lg bg-ink-900/60 p-3">
+                          <p className="whitespace-pre-line text-sm leading-6 text-white/85">{rp.reply}</p>
+                          <div className="mt-1.5 text-[11px] text-white/35" dir="ltr">{fmtDateTime(rp.created_at)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex items-end gap-2">
+                    <textarea
+                      value={replyText[r.id] || ''}
+                      onChange={(e) => setReplyText((s) => ({ ...s, [r.id]: e.target.value }))}
+                      placeholder="اكتب رد مستر أحمد هنا — هيوصله فوراً في شات المساعد على جهازه..."
+                      rows={2}
+                      className="flex-1 resize-none rounded-xl border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-brand-500"
+                    />
+                    <button
+                      onClick={() => reply(r.id)}
+                      disabled={busyId === r.id || !(replyText[r.id] || '').trim()}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-pure transition-colors hover:bg-brand-500 disabled:opacity-40"
+                      title="أرسل ردك للطالب"
+                    >
+                      {busyId === r.id ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">

@@ -1,29 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CalendarDays, MapPin, Clock, Sparkles, GraduationCap, ArrowLeft, Bell,
-  BookOpen, FlaskConical, Microscope, Atom, Rocket, Zap, Cpu, Trophy, ListOrdered,
-  ClipboardList, UserRound, Phone, School, Send, Loader2, CheckCircle2
+  CalendarDays, MapPin, Clock, Sparkles, GraduationCap, ArrowLeft, Zap,
+  BookOpen, FlaskConical, Microscope, Atom, Rocket, Cpu, Trophy, ListOrdered
 } from 'lucide-react';
 import { api } from '../api';
 import { GRADES, DAYS } from '../config';
 import { useApp } from '../store/AppContext';
 import Spinner from '../components/Spinner';
-import { cairoWeekdayIndex } from '../utils/time';
-
-const GOVERNORATES = [
-  'القاهرة', 'الجيزة', 'الأسكندرية', 'الدقهلية', 'الشرقية', 'الغربية', 'المنوفية', 'القليوبية',
-  'كفر الشيخ', 'دمياط', 'البحيرة', 'الإسماعيلية', 'بورسعيد', 'السويس', 'شمال سيناء', 'جنوب سيناء',
-  'بني سويف', 'الفيوم', 'المنيا', 'أسيوط', 'سوهاج', 'قنا', 'الأقصر', 'أسوان', 'البحر الأحمر', 'الوادي الجديد'
-];
-
-const ACADEMIC_YEARS = ['2025/2026', '2026/2027', '2027/2028'];
-
-const BOOKING_BLANK = {
-  student_name: '', phone: '', parent_name: '', parent_phone: '',
-  governorate: '', academic_year: '', grade: '', note: ''
-};
-
-const DAY_NAMES = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+import BookingForm from '../components/BookingForm';
+import {
+  cairoClock, fmtClock, fmt24m, fmtTime24, nextSession, humanMinutes, dayLabel, isOngoing, DAY_NAMES
+} from '../utils/schedule';
 
 const GRADE_COLORS = [
   'bg-teal-500/15 border-teal-400/40 text-teal-300',
@@ -46,23 +33,29 @@ function gradeColor(grade) {
 
 const STORAGE_KEY = 'phys_schedule_grade';
 
-function SessionCard({ s, showGrade }) {
+function SessionCard({ s, showGrade, now }) {
+  const live = isOngoing(s, now);
   return (
-    <div className="rounded-xl border border-white/10 bg-ink-800/60 p-3 transition-colors hover:border-brand-500/40">
+    <div className={`rounded-xl border border-white/10 bg-ink-800/60 p-3 transition-colors hover:border-brand-500/40 ${live ? 'border-emerald-400/50 bg-emerald-500/5' : ''}`}>
       <div className="flex items-start justify-between gap-2">
         {showGrade && (
           <span className={`rounded-lg border px-2.5 py-1 text-xs font-extrabold ${gradeColor(s.grade)}`}>{s.grade}</span>
         )}
         <span className="flex items-center gap-1 text-xs font-bold text-neon-300">
-          <Clock size={12} /> {s.start_time}{s.end_time ? ` حتى ${s.end_time}` : ''}
+          <Clock size={12} /> {fmtTime24(s.start_time)}{s.end_time ? ` حتى ${fmtTime24(s.end_time)}` : ''}
         </span>
       </div>
+      {live && (
+        <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black text-emerald-300">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> جارية دلوقتي
+        </span>
+      )}
       {s.note && <p className="mt-2 flex items-start gap-1 text-xs leading-5 text-white/50"><Sparkles size={12} className="mt-0.5 shrink-0 text-brand-400" /> {s.note}</p>}
     </div>
   );
 }
 
-function DayCard({ day, sessions, isToday, showGrade }) {
+function DayCard({ day, sessions, isToday, showGrade, now }) {
   return (
     <div className={`card p-5 ${isToday ? 'ring-2 ring-brand-500/50 shadow-glow' : ''}`}>
       <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-3">
@@ -74,7 +67,7 @@ function DayCard({ day, sessions, isToday, showGrade }) {
       </div>
       <div className="space-y-3">
         {sessions.map((s, i) => (
-          <SessionCard key={s.id || i} s={s} showGrade={showGrade} />
+          <SessionCard key={s.id || i} s={s} showGrade={showGrade} now={now} />
         ))}
       </div>
     </div>
@@ -82,136 +75,54 @@ function DayCard({ day, sessions, isToday, showGrade }) {
 }
 
 function BookingSection() {
-  const [form, setForm] = useState({ ...BOOKING_BLANK });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [done, setDone] = useState(false);
-
-  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      await api('/api/bookings', { method: 'POST', body: JSON.stringify(form) });
-      setDone(true);
-      setForm({ ...BOOKING_BLANK });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="card mt-16 overflow-hidden">
-      <div className="border-b border-white/10 bg-gradient-to-l from-brand-600/15 to-neon-400/10 p-6">
-        <h2 className="flex items-center gap-2 text-2xl font-black">
-          <ClipboardList size={22} className="text-brand-400" /> عايز تحجز مكانك في السنتر؟
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-white/60">
-          اكتب بياناتك وبيانات ولي الأمر، وهيتواصل معاك مستر أحمد على الرقم اللي هتكتبه لتأكيد الحجز والموعد.
-        </p>
-      </div>
-
-      {done ? (
-        <div className="flex flex-col items-center gap-4 p-10 text-center">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/15">
-            <CheckCircle2 size={32} className="text-emerald-400" />
-          </span>
-          <h3 className="text-xl font-black">وصل طلب الحجز 🎉</h3>
-          <p className="max-w-md text-sm leading-7 text-white/60">
-            مستر أحمد هيشوف بياناتك وهيتواصل معاك في أقرب وقت لتأكيد الحجز. لو عايز تحجز لطالب تاني، اضغط تحت.
-          </p>
-          <button onClick={() => setDone(false)} className="btn-ghost !py-2.5 text-sm">
-            حجز جديد
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={submit} className="p-6">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div>
-              <label className="label flex items-center gap-1.5"><UserRound size={14} className="text-brand-400" /> اسم الطالب *</label>
-              <input className="input" value={form.student_name} onChange={set('student_name')} required maxLength={100} placeholder="اسم الطالب بالكامل" />
-            </div>
-            <div>
-              <label className="label flex items-center gap-1.5"><Phone size={14} className="text-brand-400" /> رقم موبايل الطالب</label>
-              <input type="tel" dir="ltr" className="input text-right" value={form.phone} onChange={set('phone')} maxLength={30} placeholder="01xxxxxxxxx" />
-            </div>
-            <div>
-              <label className="label flex items-center gap-1.5"><UserRound size={14} className="text-brand-400" /> اسم ولي الأمر</label>
-              <input className="input" value={form.parent_name} onChange={set('parent_name')} maxLength={100} placeholder="اسم ولي الأمر" />
-            </div>
-            <div>
-              <label className="label flex items-center gap-1.5"><Phone size={14} className="text-brand-400" /> رقم موبايل ولي الأمر</label>
-              <input type="tel" dir="ltr" className="input text-right" value={form.parent_phone} onChange={set('parent_phone')} maxLength={30} placeholder="01xxxxxxxxx" />
-            </div>
-            <div>
-              <label className="label flex items-center gap-1.5"><MapPin size={14} className="text-brand-400" /> المحافظة</label>
-              <select className="input" value={form.governorate} onChange={set('governorate')}>
-                <option value="">اختار المحافظة</option>
-                {GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label flex items-center gap-1.5"><School size={14} className="text-brand-400" /> السنة الدراسية</label>
-              <select className="input" value={form.academic_year} onChange={set('academic_year')}>
-                <option value="">اختار السنة</option>
-                {ACADEMIC_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-                <option value="أخرى">أخرى</option>
-              </select>
-            </div>
-            <div className="sm:col-span-2">
-              <label className="label flex items-center gap-1.5"><GraduationCap size={14} className="text-brand-400" /> الصف الدراسي</label>
-              <select className="input" value={form.grade} onChange={set('grade')}>
-                <option value="">اختار الصف</option>
-                {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
-            <div className="sm:col-span-2">
-              <label className="label">أي ملاحظات للمدرس؟</label>
-              <textarea className="input min-h-[90px] resize-y" value={form.note} onChange={set('note')} maxLength={1000} placeholder="مثال: حابب الحصة تبقى يوم السبت بعد العصر" />
-            </div>
-          </div>
-
-          {error && <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm font-semibold text-red-300">{error}</p>}
-
-          <button type="submit" disabled={busy} className="btn-primary mt-6 w-full !py-4 disabled:opacity-60">
-            {busy ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}
-            {busy ? 'جاري إرسال طلب الحجز...' : 'أرسل طلب الحجز'}
-          </button>
-        </form>
-      )}
-    </div>
-  );
+  return <BookingForm className="mt-16" />;
 }
 
 export default function Schedule() {
-  const { settings } = useApp();
+  const { settings, customer } = useApp();
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [now, setNow] = useState(() => cairoClock());
+  const savedRef = useRef(null);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && (saved === 'الكل' || GRADES.includes(saved))) setSelected(saved);
+      if (saved && (saved === 'الكل' || GRADES.includes(saved))) {
+        setSelected(saved);
+        savedRef.current = saved;
+      }
     } catch (_) { /* ignore */ }
   }, []);
 
   useEffect(() => {
-    api('/api/schedule')
+    const load = () => api('/api/schedule')
       .then((d) => { setSchedule(Array.isArray(d.schedule) ? d.schedule : []); setLoading(false); })
       .catch(() => setLoading(false));
+    load();
+    const t1 = setInterval(load, 60000);
+    const t2 = setInterval(() => setNow(cairoClock()), 30000);
+    const t3 = setTimeout(() => setNow(cairoClock()), 1000);
+    return () => { clearInterval(t1); clearInterval(t2); clearTimeout(t3); };
   }, []);
 
-  const today = DAY_NAMES[cairoWeekdayIndex()];
+  /* اختيار صف الطالب تلقائياً من كورساته — بضغطة زرار أقل */
+  useEffect(() => {
+    if (!customer || savedRef.current || selected) return;
+    api('/api/customer/dashboard')
+      .then((d) => {
+        const g = d.enrollments && d.enrollments[0] && d.enrollments[0].grade;
+        if (g && GRADES.includes(g)) {
+          setSelected(g);
+          try { localStorage.setItem(STORAGE_KEY, g); } catch (_) { /* ignore */ }
+        }
+      })
+      .catch(() => {});
+  }, [customer, selected]);
 
-  const pick = (g) => {
-    setSelected(g);
-    try { localStorage.setItem(STORAGE_KEY, g); } catch (_) { /* ignore */ }
-  };
+  const today = DAY_NAMES[now.weekdayIndex];
+  const isGradeView = selected && selected !== 'الكل';
 
   const byDay = useMemo(() => {
     const map = {};
@@ -219,7 +130,6 @@ export default function Schedule() {
     return map;
   }, [schedule]);
 
-  const isGradeView = selected && selected !== 'الكل';
   const gradeItems = useMemo(
     () => (isGradeView ? schedule.filter((s) => s.grade === selected) : []),
     [schedule, selected, isGradeView]
@@ -228,6 +138,13 @@ export default function Schedule() {
     () => (isGradeView ? DAYS.filter((d) => gradeItems.some((s) => s.day === d)) : []),
     [gradeItems, isGradeView]
   );
+
+  const nxt = useMemo(() => nextSession(schedule, now, isGradeView ? selected : null), [schedule, now, selected, isGradeView]);
+
+  const pick = (g) => {
+    setSelected(g);
+    try { localStorage.setItem(STORAGE_KEY, g); } catch (_) { /* ignore */ }
+  };
 
   if (loading) {
     return <div className="flex min-h-[60vh] items-center justify-center pt-28"><Spinner label="جاري تحميل المواعيد..." /></div>;
@@ -247,7 +164,7 @@ export default function Schedule() {
             <span className="grad-text"> (أوفلاين)</span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-white/60 sm:text-base">
-            {settings.schedule_note || 'اختار سنتك الدراسية وشوف جدول حصصك الحضوري — بيحدث باستمرار من المدرس.'}
+            {settings.schedule_note || 'اختار سنتك الدراسية وشوف جدول حصصك الحضوري — بيحدث لحظياً وبالتوقيت بتوقيت القاهرة (نظام 24 ساعة).'}
           </p>
           {settings.schedule_address && (
             <div className="mx-auto mt-6 flex max-w-xl items-center justify-center gap-2 rounded-xl border border-brand-500/30 bg-brand-500/10 px-4 py-3 text-sm font-semibold text-brand-200">
@@ -255,6 +172,33 @@ export default function Schedule() {
             </div>
           )}
         </div>
+
+        {/* الحصة اللي جاية + الساعة الحية */}
+        {nxt && (
+          <div className={`mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border p-5 ${nxt.status === 'ongoing' ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-brand-500/40 bg-gradient-to-l from-brand-600/20 to-neon-400/10'}`}>
+            <div className="flex items-center gap-4">
+              <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${nxt.status === 'ongoing' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-brand-500/20 text-brand-300'}`}>
+                <Zap size={22} className="animate-pulse" />
+              </span>
+              <div>
+                <div className="text-sm font-bold text-white/50">{nxt.status === 'ongoing' ? 'الحصة الجارية دلوقتي' : 'الحصة اللي جاية'}</div>
+                <div className="mt-0.5 text-lg font-black leading-6">
+                  {nxt.item.grade} <span className="text-white/45">•</span> يوم {nxt.item.day}{' '}
+                  <span className="text-neon-300">{fmt24m(nxt.startMin)}</span>
+                </div>
+                <div className="mt-0.5 text-xs font-bold text-white/45">
+                  {nxt.status === 'ongoing'
+                    ? `بتخلص ${nxt.item.end_time ? fmtTime24(nxt.item.end_time) : 'بعد شوية'}`
+                    : `${dayLabel(nxt.dayOffset)} — هتبدأ بعد ${humanMinutes(nxt.minutesUntil)}`}
+                </div>
+              </div>
+            </div>
+            <div className="text-left">
+              <div className="text-[11px] font-bold text-white/45">توقيت القاهرة (24 ساعة)</div>
+              <div className="font-mono text-2xl font-black text-neon-300" dir="ltr">{fmtClock(now)}</div>
+            </div>
+          </div>
+        )}
 
         {/* Change grade bar (in view modes) */}
         {selected && (
@@ -277,7 +221,7 @@ export default function Schedule() {
           <div className="mt-10">
             <div className="text-center">
               <h2 className="text-2xl font-black">اختار سنتك الدراسية 👇</h2>
-              <p className="mt-2 text-sm text-white/55">هتلاقي مواعيد حصص سنتك بس، منظمة بالأيام.</p>
+              <p className="mt-2 text-sm text-white/55">هتلاقي مواعيد حصص سنتك بس، منظمة بالأيام — لو مسجل في كورس هنختارها لك تلقائياً.</p>
             </div>
             <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {GRADES.map((g, i) => {
@@ -345,6 +289,7 @@ export default function Schedule() {
                     sessions={gradeItems.filter((s) => s.day === day)}
                     isToday={day === today}
                     showGrade={false}
+                    now={now}
                   />
                 ))}
               </div>
@@ -367,7 +312,7 @@ export default function Schedule() {
             ) : (
               <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {DAYS.filter((d) => (byDay[d] || []).length).map((day) => (
-                  <DayCard key={day} day={day} sessions={byDay[day]} isToday={day === today} showGrade />
+                  <DayCard key={day} day={day} sessions={byDay[day]} isToday={day === today} showGrade now={now} />
                 ))}
               </div>
             )}

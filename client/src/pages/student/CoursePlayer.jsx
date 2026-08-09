@@ -180,7 +180,7 @@ export default function CoursePlayer() {
           ) : activeLesson ? (
             <div className="card overflow-hidden p-0">
               <div className="aspect-video w-full bg-ink-950">
-                <LessonVideo url={activeLesson.video_url} />
+                <LessonVideo key={activeLesson.id} url={activeLesson.video_url} />
               </div>
               <div className="p-6 sm:p-8">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -272,6 +272,7 @@ export default function CoursePlayer() {
 }
 
 function LessonVideo({ url }) {
+  const [playing, setPlaying] = useState(false);
   if (!url) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center bg-ink-950 text-center">
@@ -280,7 +281,7 @@ function LessonVideo({ url }) {
       </div>
     );
   }
-  const { kind, src } = getEmbedType(url);
+  const { kind, src, id } = getEmbedType(url);
   if (kind === 'file') {
     return (
       <video className="h-full w-full" controls src={url} style={{ background: '#000' }}>
@@ -288,10 +289,38 @@ function LessonVideo({ url }) {
       </video>
     );
   }
+  if (!playing) {
+    const poster = kind === 'youtube' ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : '';
+    return (
+      <button
+        type="button"
+        onClick={() => setPlaying(true)}
+        aria-label="تشغيل الفيديو"
+        className="group relative h-full w-full cursor-pointer overflow-hidden"
+      >
+        {poster ? (
+          <img
+            src={poster}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover"
+            style={{ background: '#000' }}
+          />
+        ) : (
+          <span className="absolute inset-0 bg-ink-950" />
+        )}
+        <span className="absolute inset-0 flex items-center justify-center bg-black/30 transition-colors group-hover:bg-black/10">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-600/95 text-pure shadow-glow transition-transform group-hover:scale-110">
+            <Play size={26} className="ml-1 fill-current" />
+          </span>
+        </span>
+      </button>
+    );
+  }
   return (
     <iframe
       className="h-full w-full"
-      src={src}
+      src={src + (src.includes('?') ? '&' : '?') + 'autoplay=1'}
       title="فيديو الدرس"
       frameBorder="0"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

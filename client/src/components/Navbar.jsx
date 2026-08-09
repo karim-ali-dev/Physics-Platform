@@ -4,12 +4,14 @@ import { Atom, Menu, X, Phone, MessageCircle, UserRound, GraduationCap } from 'l
 import { useApp } from '../store/AppContext';
 import ThemeToggle from './ThemeToggle';
 import LiveClock from './LiveClock';
+import NotificationsBell from './NotificationsBell';
 
 const links = [
   { to: '/', label: 'الرئيسية' },
   { to: '/courses', label: 'الكورسات' },
   { to: '/schedule', label: 'مواعيد الدروس' },
   { to: '/games', label: 'ألعاب فيزيائية' },
+  { to: '/community', label: 'الكوميونتي' },
   { to: '/about', label: 'عن المدرس' },
   { to: '/contact', label: 'تواصل معنا' }
 ];
@@ -68,10 +70,13 @@ export default function Navbar() {
         <div className="hidden items-center gap-2 lg:flex">
           <ThemeToggle />
           {customer ? (
-            <Link to="/student/account" className="btn-primary !px-4 !py-2 text-sm">
-              <GraduationCap size={18} />
-              منصتي
-            </Link>
+            <>
+              <NotificationsBell />
+              <Link to="/student/account" className="btn-primary !px-4 !py-2 text-sm">
+                <GraduationCap size={18} />
+                منصتي
+              </Link>
+            </>
           ) : (
             <Link to="/student/login" className="btn-ghost !px-4 !py-2 text-sm">
               <UserRound size={18} />
@@ -86,6 +91,7 @@ export default function Navbar() {
 
         <div className="flex items-center gap-2 lg:hidden">
           <ThemeToggle />
+          {customer && <NotificationsBell />}
           <button
             onClick={() => setOpen(!open)}
             className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10"

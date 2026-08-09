@@ -34,7 +34,7 @@ const securityHeaders = {
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
       mediaSrc: ["'self'", "blob:"],
-      frameSrc: ["'self'", "https://www.youtube.com", "https://player.vimeo.com"],
+      frameSrc: ["'self'", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://player.vimeo.com"],
       connectSrc: ["'self'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -62,9 +62,16 @@ const securityHeaders = {
 
 app.use(helmet(securityHeaders));
 
+const stripFileSecurityHeaders = (req, res, next) => {
+  res.removeHeader('Content-Security-Policy');
+  res.removeHeader('Content-Security-Policy-Report-Only');
+  next();
+};
+
 app.use(compression());
 app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
+app.use('/uploads', stripFileSecurityHeaders);
 app.use('/uploads', express.static(uploadsDir, { maxAge: '30d', immutable: true, setHeaders: (res, filePath) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
 }}));
@@ -120,6 +127,7 @@ if (ADMIN_PORT) {
   adminApp.use(compression());
   adminApp.use(cookieParser());
   adminApp.use(express.json({ limit: '1mb' }));
+  adminApp.use('/uploads', stripFileSecurityHeaders);
   adminApp.use('/uploads', express.static(uploadsDir, { maxAge: '30d', immutable: true }));
   adminApp.use((req, res, next) => {
     ensureCsrfCookie(req, res);

@@ -9,7 +9,7 @@ export default function Footer() {
     { href: settings.tiktok, icon: Music2, label: 'TikTok' },
     { href: settings.youtube, icon: Youtube, label: 'YouTube' },
     { href: settings.facebook, icon: Facebook, label: 'Facebook' }
-  ].filter((s) => s.href);
+  ].filter((s) => s.href && settings.show_social !== '0');
 
   return (
     <footer className="mt-20 border-t border-white/10 bg-ink-900/60">
@@ -55,7 +55,9 @@ export default function Footer() {
           <h4 className="mb-4 font-extrabold">تواصل معانا</h4>
           <ul className="space-y-3 text-sm text-white/60">
             <li className="flex items-center gap-2"><Phone size={16} className="text-brand-400" /><span dir="ltr">{settings.phone}</span></li>
-            <li className="flex items-center gap-2"><Mail size={16} className="text-brand-400" /><span dir="ltr">{settings.email}</span></li>
+            {settings.email && settings.show_email === '1' && (
+              <li className="flex items-center gap-2"><Mail size={16} className="text-brand-400" /><span dir="ltr">{settings.email}</span></li>
+            )}
             <li className="flex items-center gap-2"><MapPin size={16} className="text-brand-400" />{settings.city || 'مصر'}</li>
           </ul>
         </div>

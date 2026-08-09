@@ -22,6 +22,17 @@ export function fmtTime(iso) {
   return safe(iso, (d) => d.toLocaleTimeString('ar-EG', { timeZone: CAIRO_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 }
 
+export function timeAgo(iso) {
+  return safe(iso, (d) => {
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return 'الآن';
+    if (diff < 3600) return `منذ ${Math.floor(diff / 60)} دقيقة`;
+    if (diff < 86400) return `منذ ${Math.floor(diff / 3600)} ساعة`;
+    if (diff < 86400 * 7) return `منذ ${Math.floor(diff / 86400)} يوم`;
+    return d.toLocaleDateString('ar-EG', { timeZone: CAIRO_TZ, day: 'numeric', month: 'short' });
+  });
+}
+
 export function cairoWeekdayIndex(now = new Date()) {
   try {
     const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

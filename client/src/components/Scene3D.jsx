@@ -16,16 +16,21 @@ export default function Scene3D() {
     const mount = mountRef.current;
     if (!mount) return;
 
+    const weakDevice =
+      (typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+      (typeof navigator !== 'undefined' && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+      (typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches);
+
     let renderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      renderer = new THREE.WebGLRenderer({ antialias: !weakDevice, alpha: true, powerPreference: 'low-power' });
     } catch (_) {
       return;
     }
 
     const width = mount.clientWidth || window.innerWidth;
     const height = mount.clientHeight || window.innerHeight;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, weakDevice ? 1 : 1.5));
     renderer.setSize(width, height);
     mount.appendChild(renderer.domElement);
 
@@ -42,7 +47,7 @@ export default function Scene3D() {
 
     const mouse = { x: 0, y: 0 };
 
-    const count = 2800;
+    const count = weakDevice ? 1400 : 2200;
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
     const colorA = new THREE.Color(0x2dd4bf);
@@ -79,7 +84,7 @@ export default function Scene3D() {
     const points = new THREE.Points(geo, mat);
     scene.add(points);
 
-    const nucleusGeo = new THREE.IcosahedronGeometry(1.1, 3);
+    const nucleusGeo = new THREE.IcosahedronGeometry(1.1, weakDevice ? 1 : 2);
     const nucleusMat = new THREE.MeshStandardMaterial({ color: 0x14b8a6, emissive: 0x0d9488, emissiveIntensity: 0.55, transparent: true, opacity: 0.92 });
     const nucleus = new THREE.Mesh(nucleusGeo, nucleusMat);
     nucleus.position.z = -3;
@@ -97,14 +102,14 @@ export default function Scene3D() {
 
     const electrons = [];
     orbitRings.forEach((ring, idx) => {
-      const ringGeo = new THREE.TorusGeometry(ring.r, 0.012, 8, 140);
+      const ringGeo = new THREE.TorusGeometry(ring.r, 0.012, 8, weakDevice ? 72 : 120);
       const ringMat = new THREE.MeshBasicMaterial({ color: ring.color, transparent: true, opacity: 0.35 });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.rotation.x = ring.tilt;
       ringMesh.rotation.y = idx * 0.6;
       orbitGroup.add(ringMesh);
 
-      const electronGeo = new THREE.SphereGeometry(0.18, 16, 16);
+      const electronGeo = new THREE.SphereGeometry(0.18, weakDevice ? 10 : 14, weakDevice ? 10 : 14);
       const electronMat = new THREE.MeshStandardMaterial({ color: ring.color, emissive: ring.color, emissiveIntensity: 0.9 });
       const electron = new THREE.Mesh(electronGeo, electronMat);
       const angle = (idx * Math.PI * 2) / 3;
@@ -135,9 +140,19 @@ export default function Scene3D() {
     window.addEventListener('resize', onResize);
 
     const clock = new THREE.Clock();
-    let raf;
+    let raf = 0;
+    let running = true;
+
+    /* وقف الرندر لما الصفحة متكنش ظاهرة أو المشهد برّه الشاشة */
+    const setRunning = (v) => { running = v; };
+    const onVisibility = () => setRunning(document.visibilityState === 'visible');
+    const io = new IntersectionObserver(([entry]) => setRunning(entry.isIntersecting), { rootMargin: '100px' });
+    io.observe(mount);
+    document.addEventListener('visibilitychange', onVisibility);
+
     const animate = () => {
       raf = requestAnimationFrame(animate);
+      if (!running) return;
       const t = clock.getElapsedTime();
       points.rotation.y = t * 0.05;
       points.rotation.x = Math.sin(t * 0.1) * 0.14;
@@ -163,6 +178,8 @@ export default function Scene3D() {
 
     return () => {
       cancelAnimationFrame(raf);
+      io.disconnect();
+      document.removeEventListener('visibilitychange', onVisibility);
       observer.disconnect();
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('resize', onResize);

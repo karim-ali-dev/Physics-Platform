@@ -4,13 +4,15 @@ import { LogIn, Mail, Lock, GraduationCap } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { AuthShell } from '../customer/AuthShell';
 import SocialButtons from '../customer/SocialButtons';
+import Celebration from '../../components/Celebration';
 
 const ERROR_TEXT = {
   state: 'انتهت صلاحية محاولة الدخول الاجتماعية، جرب تاني.',
   denied: 'ألغيت تسجيل الدخول الاجتماعي.',
   token: 'مشكلة في الاتصال بخدمة الدخول، جرب تاني.',
   profile: 'مش عرفين نجيب بيانات حسابك الاجتماعي.',
-  server: 'حصل خطأ في السيرفر، جرب تاني بعد شوية.'
+  server: 'حصل خطأ في السيرفر، جرب تاني بعد شوية.',
+  pending: 'حسابك الجديد استلمناه ✅ بس لسه قيد المراجعة — مستر أحمد هيفعّله أول ما يتأكد إنك طالب حقيقي، وجرب الدخول بعدها.'
 };
 
 export default function StudentLogin() {
@@ -20,10 +22,17 @@ export default function StudentLogin() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
 
   useEffect(() => {
-    if (customer) navigate('/student/account', { replace: true });
-  }, [customer, navigate]);
+    if (customer && !celebrate) navigate('/student/account', { replace: true });
+  }, [customer, celebrate, navigate]);
+
+  useEffect(() => {
+    if (!celebrate) return;
+    const t = setTimeout(() => navigate('/student/account'), 7000);
+    return () => clearTimeout(t);
+  }, [celebrate, navigate]);
 
   useEffect(() => {
     const e = params.get('error');
@@ -36,7 +45,7 @@ export default function StudentLogin() {
     setError('');
     try {
       await customerLogin(form.email, form.password);
-      navigate('/student/account');
+      setCelebrate(true);
     } catch (err) {
       setError(err.message || 'خطأ في الدخول');
     } finally {
@@ -45,20 +54,21 @@ export default function StudentLogin() {
   };
 
   return (
-    <AuthShell
-      icon={<GraduationCap size={26} className="text-pure" />}
-      title="تسجيل دخول الطلاب"
-      subtitle="سجّل دخولك علشان تكمل دروسك وحل الاختبارات."
-      error={error}
-      footer={
-        <>
-          لسه مفيش حساب؟{' '}
-          <Link to="/student/register" className="font-bold text-brand-400 hover:text-brand-300">أنشئ حساب جديد مجاناً</Link>
-          {' '}— أو{' '}
-          <Link to="/student/forgot" className="font-bold text-brand-400 hover:text-brand-300">نسيت كلمة السر؟</Link>
-        </>
-      }
-    >
+    <>
+      <AuthShell
+        icon={<GraduationCap size={26} className="text-pure" />}
+        title="تسجيل دخول الطلاب"
+        subtitle="سجّل دخولك علشان تكمل دروسك وحل الاختبارات."
+        error={error}
+        footer={
+          <>
+            لسه مفيش حساب؟{' '}
+            <Link to="/student/register" className="font-bold text-brand-400 hover:text-brand-300">أنشئ حساب جديد مجاناً</Link>
+            {' '}— أو{' '}
+            <Link to="/student/forgot" className="font-bold text-brand-400 hover:text-brand-300">نسيت كلمة السر؟</Link>
+          </>
+        }
+      >
       <form onSubmit={submit} className="space-y-4">
         <div>
           <label className="label">البريد الإلكتروني</label>
@@ -99,6 +109,9 @@ export default function StudentLogin() {
       <div className="mt-5">
         <SocialButtons />
       </div>
-    </AuthShell>
+      </AuthShell>
+
+      <Celebration open={celebrate} onClose={() => navigate('/student/account')} />
+    </>
   );
 }

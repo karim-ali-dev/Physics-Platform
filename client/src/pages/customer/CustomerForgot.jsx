@@ -55,9 +55,9 @@ export default function CustomerForgot() {
             <span>{status.message}</span>
           </div>
 
-          {status.devLink && (
+          {import.meta.env.DEV && status.devLink && (
             <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-4">
-              <div className="mb-2 text-xs font-bold text-brand-400">الرابط (وضع التطوير — مش موجود في الرابط إلا لما يتفعّل الإيميل):</div>
+              <div className="mb-2 text-xs font-bold text-brand-400">الرابط (يظهر في وضع التطوير فقط ولا يظهر للزوار):</div>
               <div className="flex items-center gap-2">
                 <code dir="ltr" className="min-w-0 flex-1 truncate rounded-lg bg-ink-950 px-3 py-2 text-xs text-white/80">{status.devLink}</code>
                 <button onClick={copy} className="flex shrink-0 items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/20" title="نسخ الرابط">

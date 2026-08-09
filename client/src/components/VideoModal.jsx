@@ -44,7 +44,7 @@ export default function VideoModal({ project, onClose }) {
         ) : (
           <iframe
             key={embed.src}
-            src={embed.src}
+            src={embed.src + (embed.src.includes('?') ? '&' : '?') + 'autoplay=1'}
             title={project.title}
             allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
             allowFullScreen

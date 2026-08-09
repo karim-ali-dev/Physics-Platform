@@ -3,6 +3,8 @@ const rateLimit = require('express-rate-limit');
 const { db } = require('../db');
 const { audit } = require('../security');
 const { upload, validateFileSignature } = require('../middleware/upload');
+const { askGemini } = require('./ai');
+const { saveFile } = require('../storage');
 const { ah } = require('../asyncHandler');
 
 const router = express.Router();
@@ -378,6 +380,8 @@ const GRADE_ALIASES = [
 
 const DAY_ORDER = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
 
+const { cairoParts, daySessions, nextSession, fmt24m, humanMinutes, dayLabel, parseTime } = require('../scheduleUtil');
+
 function detectGrade(msg) {
   for (const g of GRADE_ALIASES) {
     for (const name of g.names) {
@@ -440,6 +444,7 @@ router.post('/chat', chatLimiter, ah(async (req, res) => {
   const imageUrl = req.body && typeof req.body.image_url === 'string' ? req.body.image_url.slice(0, 500) : '';
   const name = req.body && typeof req.body.name === 'string' ? req.body.name.slice(0, 100) : '';
   const contact = req.body && typeof req.body.contact === 'string' ? req.body.contact.slice(0, 100) : '';
+  const clientId = req.body && typeof req.body.client_id === 'string' ? req.body.client_id.slice(0, 64) : '';
 
   const settings = {};
   (await db.all('SELECT key, value FROM settings')).forEach((s) => { settings[s.key] = s.value; });
@@ -454,21 +459,26 @@ router.post('/chat', chatLimiter, ah(async (req, res) => {
   const quick = (arr) => (Array.isArray(arr) ? arr : ['إيه الكورسات؟', 'مواعيد الصف التالت الثانوي', 'لو سمحت اشرح قانون أوم', 'أبعت صورة مسألة']);
   let reply = null;
 
-  /* --- استقبال صورة مسألة --- */
+  /* --- استقبال صورة مسألة: حل فوري بالذكاء الاصطناعي + إرسال للمدرس --- */
   if (imageUrl) {
-    const q = await db.run('INSERT INTO help_requests (student_name, contact, type, content, image_url, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name || 'طالب بالمنصة', contact, 'image', raw || 'صورة مسألة — يرجى الحل', imageUrl, 'new', new Date().toISOString()]);
+    const q = await db.run('INSERT INTO help_requests (student_name, contact, client_id, type, content, image_url, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name || 'طالب بالمنصة', contact, clientId, 'image', raw || 'صورة مسألة — يرجى الحل', imageUrl, 'new', new Date().toISOString()]);
     await audit(0, 'help_image', `help#${q.lastInsertRowid} — ${raw.slice(0, 80) || 'صورة مسألة'}`, req.ip);
-    reply = 'وصلتني صورة المسألة 📷✨\nتم حفظها فوراً وهيوصلك حل مفصل من مستر أحمد في أقرب وقت.\nلو محتاج توضح المسألة، اكتب تفاصيلها (القانون/الأرقام) هنا وممكن تبعت صورة غيرها برضه.';
+    const aiReply = await askGemini(raw || 'حل المسألة الموجودة في الصورة بالتفصيل خطوة بخطوة بالعربي: اكتب المعطيات، ثم القانون، ثم الحل بالوحدات الصحيحة.', undefined, imageUrl, process.env.BASE_URL || process.env.SITE_URL || `http://${req.headers.host || 'localhost:5000'}`);
+    if (aiReply) {
+      reply = `📷 قرأت صورة المسألة وحليتها لك خطوة بخطوة:\n\n${aiReply}\n\n• الصورة اتحفظت كمان لمستر أحمد للمراجعة — لو عايز توضيح إضافي هيرد عليك هنا مباشرة.`;
+    } else {
+      reply = 'وصلتني صورة المسألة 📷✨\nتم حفظها فوراً وهيوصلك حل مفصل من مستر أحمد في أقرب وقت (هتلاقي رده هنا في الشات).\nلو محتاج توضح المسألة، اكتب تفاصيلها (القانون/الأرقام) هنا وممكن تبعت صورة غيرها برضه.';
+    }
     return res.json({ reply, quick: quick(['تمام شكراً', 'ممكن أبعته صورة تانية', 'إيه مواعيد الحصص؟']) });
   }
 
   /* --- رسالة نصية للمدرس (طلب مساعدة) --- */
   if (has(msg, ['ابعت للمدرس', 'ابعت رساله', 'كلم المدرس', 'اسال المدرس', 'سؤال للمدرس', 'مساعده من المدرس', 'راسل المدرس', 'ابعت سؤال', 'محتاج المدرس'])) {
-    await db.run('INSERT INTO help_requests (student_name, contact, type, content, image_url, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name || 'طالب بالمنصة', contact, 'text', raw, '', 'new', new Date().toISOString()]);
+    await db.run('INSERT INTO help_requests (student_name, contact, client_id, type, content, image_url, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name || 'طالب بالمنصة', contact, clientId, 'text', raw, '', 'new', new Date().toISOString()]);
     await audit(0, 'help_text', `${name || 'طالب'} — ${raw.slice(0, 80)}`, req.ip);
-    reply = `تم إرسال سؤالك لمستر أحمد ✅ (${name ? 'اسمك: ' + name + ' — ' : ''}${contact ? 'وسيلة التواصل: ' + contact + ' — ' : ''}${settings.phone ? 'رقم المدرس: ' + settings.phone : ''})\nهيرد عليك في أقرب وقت، وتقدر كمان تبعت صورة المسألة هنا لو محتاج.`;
+    reply = `تم إرسال سؤالك لمستر أحمد ✅ (${name ? 'اسمك: ' + name + ' — ' : ''}${contact ? 'وسيلة التواصل: ' + contact + ' — ' : ''}${settings.phone ? 'رقم المدرس: ' + settings.phone : ''})\nهيرد عليك في أقرب وقت، وردّه هيوصلك هنا في الشات مباشرة. وتقدر كمان تبعت صورة المسألة هنا لو محتاج.`;
     return res.json({ reply, quick: quick(['تمام شكراً', 'أبعت صورة مسألة', 'مواعيد الحصص؟']) });
   }
 
@@ -500,6 +510,27 @@ router.post('/chat', chatLimiter, ah(async (req, res) => {
     }
   }
 
+  /* --- الوقت الحقيقي للحصص (النهارده / الحصة الجاية) — نظام 24 ساعة --- */
+  if (has(msg, ['النهارده', 'النهاردة', 'اليوم', 'اللي جاي', 'اللي جايه', 'الحصة الجاية', 'الحصه الجايه', 'بعد كام', 'كام ساعة', 'كام ساعه', 'فاضل كام', 'بكرة', 'بكرا'])) {
+    const parts = cairoParts();
+    const grade = detectGrade(msg);
+    const pool = grade ? items.filter((r) => r.grade === grade) : items;
+    const today = daySessions(pool, parts.weekday);
+    const nxt = nextSession(pool, parts);
+    let out = `⏰ الوقت دلوقتي (بتوقيت القاهرة): ${fmt24m(parts.hour * 60 + parts.minute)} — نظام 24 ساعة`;
+    if (grade) out += `، وده جدول ${grade}`;
+    out += `\n📅 حصص النهارده (${parts.weekday}):`;
+    out += today.length
+      ? '\n' + today.map((r) => `• ${r.grade} ${fmt24m(parseTime(r.start_time))}${r.end_time ? ' حتى ' + fmt24m(parseTime(r.end_time)) : ''}${r.tag && r.tag_active !== 0 ? ' 🔖 ' + r.tag : ''}`).join('\n')
+      : '\n• مفيش حصص مسجلة النهارده';
+    if (nxt) {
+      out += `\n🔜 الحصة اللي جاية: ${nxt.item.grade} — يوم ${nxt.item.day} الساعة ${fmt24m(nxt.startMin)}${nxt.status === 'ongoing' ? ' (جارية دلوقتي 🔴)' : ` (${dayLabel(nxt.dayOffset)} — ${humanMinutes(nxt.minutesUntil)})`}`;
+    } else {
+      out += '\n🔜 الحصة اللي جاية: لا يوجد جدول مسجل حالياً';
+    }
+    return res.json({ reply: out, quick: quick(['تمام شكراً', 'مواعيد الصف الأول الثانوي', 'مواعيد الصف الثالث الثانوي', 'لو سمحت اشرح قانون أوم']) });
+  }
+
   /* --- المواعيد والجدول --- */
   if (has(msg, ['مواعيد', 'جدول', 'حصة', 'حصص', 'ميعاد', 'معاد', 'اوقات', 'أوقات', 'الموعد', 'اوفلاين', 'حضوري', 'حضور', 'الجداول', 'بكام الساعة'])) {
     const grade = detectGrade(msg);
@@ -523,7 +554,7 @@ router.post('/chat', chatLimiter, ah(async (req, res) => {
 
   /* --- بيانات المنصة (موجودة من الأول) --- */
   if (has(msg, ['سلام', 'اهلا', 'اهلين', 'مرحبا', 'مرحب', 'هلا', 'هاي', 'صباح الخير', 'مساء الخير', 'السلام عليكم', 'هلو', 'ازيك', 'تحيه'])) {
-    reply = `أهلاً بيك يا صديقي 👋 أنا مساعد منصة مستر أحمد علي الديب الذكي.\nأقدر أساعدك في:\n• مواعيد الحصص (أوفلاين) لكل الصفوف\n• شرح قوانين الفيزياء وحل مسائل\n• تحويل الوحدات وحسابات سريعة\n• الكورسات والتسجيل\n\nجرب تسألني: "مواعيد الصف التالت الثانوي" أو "لو سمحت اشرح قانون أوم".`;
+    reply = `أهلاً بيك يا صديقي 👋 أنا مساعد منصة مستر أحمد علي الديب الذكي.\nأقدر أساعدك في:\n• 📸 حل مسائل الفيزياء من الصور — ابعتها والمساعد بيحلها خطوة بخطوة\n• مواعيد الحصص (أوفلاين) لكل الصفوف\n• شرح قوانين الفيزياء وحل مسائل\n• تحويل الوحدات وحسابات سريعة\n• الكورسات والتسجيل\n\nجرب تسألني: "مواعيد الصف التالت الثانوي" أو "لو سمحت اشرح قانون أوم" — أو ابعت صورة مسألة وأنا حلها.`;
   } else if (has(msg, ['شكرا', 'تسلم', 'يعطيك العافيه', 'ميرسي', 'جزاك الله']) || msg.includes('تمام') || msg.includes('اوكي') || msg.includes('ok')) {
     reply = `العفو دي مهمتي 🤍 لو محتاج أي حاجة تانية أنا موجود — مواعيد، شرح قانون، أو مسألة.`;
   } else if (has(msg, ['الكورسات', 'كورسات', 'كورس', 'منهج', 'محتوي', 'محتوى', 'بتشرح ايه', 'بتقدم ايه', 'دروس'])) {
@@ -541,10 +572,15 @@ router.post('/chat', chatLimiter, ah(async (req, res) => {
   } else if (has(msg, ['من انت', 'مين انت', 'من هو', 'مين هو', 'عرفني', 'خبره', 'خبرة', 'مستر احمد مين'])) {
     reply = `مستر أحمد علي الديب — مدرس فيزياء بيشرح من الصف الرابع الابتدائي لحد الصف الثالث الثانوي، بخبرة ${settings.stats_years || '15'} سنة 💜\n${settings.hero_subtitle || ''}\n\nوبيقدم حصص أوفلاين أسبوعية (من صفحة المواعيد) وشرح أونلاين على المنصة.`;
   } else if (has(msg, ['اسجل', 'اشترك', 'حساب', 'اكونت', 'تسجيل', 'ابدأ', 'ابدا', 'ازاي اذاكر'])) {
-    reply = `سهلة جداً 🎓\n1) اعمل حساب جديد من صفحة "دخول الطلاب"\n2) سجّل في الكورس اللي عايزه\n3) اتفرج على الدروس وحل الاختبارات\n\nرابط التسجيل: ${process.env.SITE_URL || 'http://localhost:5173'}/student/register`;
+    reply = `سهلة جداً 🎓\n1) اعمل حساب جديد من صفحة "دخول الطلاب" على الموقع\n2) سجّل في الكورس اللي عايزه\n3) اتفرج على الدروس وحل الاختبارات`;
   } else if (has(msg, ['اختبار', 'امتحان', 'تدريبات', 'مراجعه', 'مراجعة', 'حل مسائل', 'حل المسائل'])) {
     reply = `في اختبارات تفاعلية على كل باب بتحاكي امتحانات السنوات السابقة ✅\nبتصحح تلقائياً مع شرح للإجابة الصحيحة.\n\nولحل أي مسألة: اكتب بياناتها هنا (مثال: "جسم كتلته 5 كجم وعجله 2 م/ث²، أوجد القوة") أو ابعت صورة المسألة وأوصلها للمدرس.`;
   } else {
+    /* --- رد بالذكاء الاصطناعي باسم مستر أحمد --- */
+    const aiReply = await askGemini(raw);
+    if (aiReply) {
+      return res.json({ reply: aiReply, quick: quick(['تمام شكراً', 'عايز أحل مسألة', 'مواعيد الحصص؟']) });
+    }
     const faq = (() => {
       let best = null;
       let bestScore = 0;
@@ -564,7 +600,7 @@ router.post('/chat', chatLimiter, ah(async (req, res) => {
     } else if (has(msg, OFF_TOPIC)) {
       reply = `أنا متخصص بس في الفيزياء ومنصة مستر أحمد 🎯\nمش هقدر أساعدك في غير ده، بس أقدر أشرحلك أي قانون أو مواعيد الحصص أو أحل مسألة.\nجرب: "اشرح قانون أوم" أو "مواعيد الصف الأول الثانوي".`;
     } else if (has(msg, ['مسأله', 'مساله', 'مسائل', 'السؤال', 'حل', 'اوجد', 'احسب', 'أوجد', 'مجهول'])) {
-      reply = `عشان أحل المسألة محتاج البيانات بالظبط 📝\nاكتبها بنظام: "جسم كتلته 5 كجم واتأثر بقوة 10 نيوتن، أوجد العجلة".\n\nأو ابعت صورة المسألة من زرار 📎 ووصّلها للمدرس يحلها بشرح مفصل.`;
+      reply = `عشان أحل المسألة محتاج البيانات بالظبط 📝\nاكتبها بنظام: "جسم كتلته 5 كجم واتأثر بقوة 10 نيوتن، أوجد العجلة".\n\nأو صور المسألة من زرار 📎 أو الكاميرا 📷 وأنا أحلها لك فوراً — وتتوصّل للمدرس كمان.`;
     } else {
       reply = `أنا مساعد منصة الفيزياء 🎯 مختص في:\n• مواعيد الحصص الأوفلاين لكل الصفوف\n• شرح القوانين وحل المسائل\n• تحويل الوحدات والحسابات\n• الكورسات والتسجيل\n\nجرب تكتب: "مواعيد الصف الثالث الثانوي" أو "اشرح قانون نيوتن الثاني" — أو كلم مستر أحمد: https://wa.me/${whatsapp}`;
     }
@@ -576,11 +612,33 @@ router.post('/chat', chatLimiter, ah(async (req, res) => {
 /* --- رفع صورة مسألة من الطالب --- */
 router.post('/upload', uploadLimiter, upload.single('file'), ah(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'اختار صورة المسألة الأول' });
-  if (!validateFileSignature('image', req.file.path)) {
-    try { require('fs').unlinkSync(req.file.path); } catch (_) { /* ignore */ }
+  if (!validateFileSignature('image', req.file.buffer)) {
     return res.status(400).json({ error: 'الملف مش صورة سليمة — ارفع jpg أو png أو webp' });
   }
-  res.json({ url: '/uploads/' + req.file.filename });
+  const saved = await saveFile({ buffer: req.file.buffer, originalname: req.file.originalname, mimeType: req.file.mimetype });
+  res.json({ url: saved.url });
+}));
+
+/* --- تتبع ضغطة زر الواتساب للمدرس --- */
+router.post('/whatsapp-track', chatLimiter, ah(async (req, res) => {
+  const msg = String((req.body && req.body.message) || '').slice(0, 200);
+  await audit(0, 'whatsapp_click', msg || 'فتح واتساب مستر أحمد', req.ip);
+  res.json({ ok: true });
+}));
+
+/* --- جلب ردود مستر أحمد للطالب (بجهاز الطالب نفسه) --- */
+router.get('/help', chatLimiter, ah(async (req, res) => {
+  const clientId = String(req.query.client_id || '').slice(0, 64);
+  const since = String(req.query.since || '').slice(0, 40);
+  if (!clientId) return res.json({ replies: [] });
+  const rows = await db.all(
+    `SELECT hr.id AS help_id, hr.content, hr.image_url, r.reply, r.created_at AS replied_at
+     FROM help_replies r JOIN help_requests hr ON hr.id = r.help_id
+     WHERE hr.client_id = ? AND (? = '' OR r.created_at > ?)
+     ORDER BY r.id ASC`,
+    [clientId, since, since]
+  );
+  res.json({ replies: rows });
 }));
 
 module.exports = router;

@@ -221,11 +221,80 @@ CREATE TABLE IF NOT EXISTS help_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   student_name TEXT DEFAULT '',
   contact TEXT DEFAULT '',
+  client_id TEXT DEFAULT '',
+  student_id INTEGER DEFAULT 0,
   type TEXT NOT NULL DEFAULT 'text',
   content TEXT DEFAULT '',
   image_url TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'new',
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS help_replies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  help_id INTEGER NOT NULL,
+  reply TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (help_id) REFERENCES help_requests(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS community_posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER DEFAULT 0,
+  author_name TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  category TEXT DEFAULT 'عام',
+  image_url TEXT DEFAULT '',
+  views INTEGER DEFAULT 0,
+  likes INTEGER DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS community_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL,
+  student_id INTEGER DEFAULT 0,
+  author_name TEXT DEFAULT '',
+  content TEXT NOT NULL,
+  likes INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (post_id) REFERENCES community_posts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS community_reactions (
+  post_id INTEGER NOT NULL,
+  customer_id INTEGER NOT NULL,
+  emoji TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (post_id, customer_id, emoji),
+  FOREIGN KEY (post_id) REFERENCES community_posts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS comment_likes (
+  comment_id INTEGER NOT NULL,
+  customer_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (comment_id, customer_id),
+  FOREIGN KEY (comment_id) REFERENCES community_comments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  link TEXT DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_reads (
+  notification_id INTEGER NOT NULL,
+  customer_id INTEGER NOT NULL,
+  read_at TEXT NOT NULL,
+  PRIMARY KEY (notification_id, customer_id),
+  FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -285,6 +354,14 @@ CREATE INDEX IF NOT EXISTS idx_customers_oauth ON customers(google_id);
 CREATE INDEX IF NOT EXISTS idx_customers_fb ON customers(facebook_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_day ON schedule_items(day, sort_order);
 CREATE INDEX IF NOT EXISTS idx_help_status ON help_requests(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_help_client ON help_requests(client_id);
+CREATE INDEX IF NOT EXISTS idx_replies_help ON help_replies(help_id);
+CREATE INDEX IF NOT EXISTS idx_posts_status ON community_posts(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_post ON community_comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_reactions_post ON community_reactions(post_id);
+CREATE INDEX IF NOT EXISTS idx_comment_likes ON comment_likes(comment_id);
+CREATE INDEX IF NOT EXISTS idx_notifs_date ON notifications(created_at);
+CREATE INDEX IF NOT EXISTS idx_notif_reads ON notification_reads(customer_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status, created_at);
@@ -478,11 +555,68 @@ const PG_DDL = [
     id SERIAL PRIMARY KEY,
     student_name TEXT NOT NULL DEFAULT '',
     contact TEXT NOT NULL DEFAULT '',
+    client_id TEXT NOT NULL DEFAULT '',
+    student_id INTEGER NOT NULL DEFAULT 0,
     type TEXT NOT NULL DEFAULT 'text',
     content TEXT NOT NULL DEFAULT '',
     image_url TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'new',
     created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS help_replies (
+    id SERIAL PRIMARY KEY,
+    help_id INTEGER NOT NULL REFERENCES help_requests(id) ON DELETE CASCADE,
+    reply TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS community_posts (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL DEFAULT 0,
+    author_name TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'عام',
+    image_url TEXT NOT NULL DEFAULT '',
+    views INTEGER NOT NULL DEFAULT 0,
+    likes INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS community_comments (
+    id SERIAL PRIMARY KEY,
+    post_id INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL DEFAULT 0,
+    author_name TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    likes INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS community_reactions (
+    post_id INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL,
+    emoji TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (post_id, customer_id, emoji)
+  )`,
+  `CREATE TABLE IF NOT EXISTS comment_likes (
+    comment_id INTEGER NOT NULL REFERENCES community_comments(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (comment_id, customer_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS notifications (
+    id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    link TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS notification_reads (
+    notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL,
+    read_at TEXT NOT NULL,
+    PRIMARY KEY (notification_id, customer_id)
   )`,
   `CREATE TABLE IF NOT EXISTS messages (
     id SERIAL PRIMARY KEY,
@@ -537,6 +671,10 @@ const PG_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_customers_fb ON customers(facebook_id)`,
   `CREATE INDEX IF NOT EXISTS idx_schedule_day ON schedule_items(day, sort_order)`,
   `CREATE INDEX IF NOT EXISTS idx_help_status ON help_requests(status, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_help_client ON help_requests(client_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_replies_help ON help_replies(help_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_posts_status ON community_posts(status, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_comments_post ON community_comments(post_id)`,
   `CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id)`,
   `CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status, created_at)`
@@ -547,6 +685,11 @@ const POST_INIT_FIXUPS = [
   "UPDATE testimonials SET source = 'admin' WHERE source IS NULL OR source = ''",
   "UPDATE schedule_items SET period = 'الليل' WHERE (period IS NULL OR period = '') AND (start_time LIKE '5:%' OR start_time LIKE '6:%' OR start_time LIKE '7:%')",
   "UPDATE schedule_items SET period = 'النهار' WHERE (period IS NULL OR period = '') AND (start_time LIKE '3:%' OR start_time LIKE '4:%')"
+];
+
+const PG_MIGRATIONS = [
+  "ALTER TABLE help_requests ADD COLUMN IF NOT EXISTS client_id TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE help_requests ADD COLUMN IF NOT EXISTS student_id INTEGER NOT NULL DEFAULT 0"
 ];
 
 /* ============================================================
@@ -636,10 +779,11 @@ async function initInternal() {
   if (usePostgres) {
     underlying = await initPostgres();
     for (const stmt of PG_DDL) await underlying.exec(stmt);
+    for (const stmt of PG_MIGRATIONS) await underlying.exec(stmt);
   } else {
     underlying = await initSqlite();
-    await underlying.exec(SQLITE_DDL);
     await ensureSqliteColumns();
+    await underlying.exec(SQLITE_DDL);
   }
   for (const fix of POST_INIT_FIXUPS) {
     try { await underlying.run(fix); } catch (_) {}
@@ -658,8 +802,9 @@ async function ensureSqliteColumns() {
   await ensureColumn('users', 'totp_secret', "TEXT DEFAULT ''");
   await ensureColumn('users', 'totp_enabled', 'INTEGER DEFAULT 0');
   await ensureColumn('sessions', 'user_type', "TEXT NOT NULL DEFAULT 'admin'");
-  await ensureColumn('customers', 'google_id', "TEXT DEFAULT ''");
-  await ensureColumn('customers', 'facebook_id', "TEXT DEFAULT ''");
+await ensureColumn('customers', 'google_id', "TEXT DEFAULT ''");
+await ensureColumn('customers', 'facebook_id', "TEXT DEFAULT ''");
+await ensureColumn('customers', 'status', "TEXT DEFAULT 'active'");
   await ensureColumn('customers', 'avatar', "TEXT DEFAULT ''");
   await ensureColumn('customers', 'reset_token_hash', "TEXT DEFAULT ''");
   await ensureColumn('customers', 'reset_expires', "TEXT DEFAULT ''");
@@ -676,6 +821,9 @@ async function ensureSqliteColumns() {
   await ensureColumn('testimonials', 'student_id', 'INTEGER DEFAULT 0');
   await ensureColumn('courses', 'price_amount', 'REAL DEFAULT 0');
   await ensureColumn('payments', 'payer_phone', "TEXT DEFAULT ''");
+  await ensureColumn('help_requests', 'client_id', "TEXT DEFAULT ''");
+  await ensureColumn('help_requests', 'student_id', 'INTEGER DEFAULT 0');
+  await ensureColumn('community_comments', 'likes', 'INTEGER DEFAULT 0');
 }
 
 /* ============================================================
@@ -690,12 +838,14 @@ const DEFAULT_SETTINGS = {
   about_quote: 'الفيزياء مش حفظ قوانين.. الفيزياء فهم، والقانون لما تفهمه مش هتنساه.',
   phone: '01016651095',
   whatsapp: '201016651095',
-  email: 'ahmedeldeeb@example.com',
+  email: '',
   city: 'مصر',
-  youtube: 'https://youtube.com/',
-  facebook: 'https://facebook.com/',
-  tiktok: 'https://tiktok.com/',
-  instagram: 'https://instagram.com/',
+  youtube: '',
+  facebook: '',
+  tiktok: '',
+  instagram: '',
+  show_social: '1',
+  show_email: '0',
   footer_tagline: 'علّمهم تفكير الفيزياء، والنتائج هتيجي لوحدها.',
   stats_students: '8500',
   stats_courses: '12',
@@ -704,7 +854,13 @@ const DEFAULT_SETTINGS = {
   schedule_note: 'مواعيد الحصص الحضورية (أوفلاين) بتتحدث باستمرار من المدرس — لو في أي تغيير هتلاقيه هنا فوراً.',
   schedule_address: 'بنشوف المكان الأقرب ليك عند الحجز — تواصل مع مستر أحمد للتفاصيل.',
   vodafone_cash: '01016651095',
-  vodafone_cash_name: 'أحمد علي الديب'
+  vodafone_cash_name: 'أحمد علي الديب',
+  gemini_api_key: '',
+  gemini_model: 'gemini-3.5-flash',
+  google_client_id: '',
+  google_client_secret: '',
+  facebook_app_id: '',
+  facebook_app_secret: ''
 };
 
 const DEFAULT_COURSES = [
@@ -894,6 +1050,17 @@ async function seed(d) {
   await fixSetting('phone', '01099724825', DEFAULT_SETTINGS.phone);
   await fixSetting('whatsapp', '201099724825', DEFAULT_SETTINGS.whatsapp);
   await fixSetting('vodafone_cash', '01099724825', DEFAULT_SETTINGS.vodafone_cash);
+await fixSetting('email', '', '');
+await fixSetting('youtube', '', '');
+await fixSetting('facebook', '', '');
+await fixSetting('tiktok', '', '');
+await fixSetting('instagram', '', '');
+await fixSetting('gemini_api_key', '', '');
+await fixSetting('gemini_model', 'gemini-flash-latest', 'gemini-3.5-flash');
+await fixSetting('google_client_id', '', '');
+await fixSetting('google_client_secret', '', '');
+await fixSetting('facebook_app_id', '', '');
+await fixSetting('facebook_app_secret', '', '');
 
   await d.run('UPDATE faqs SET answer = ? WHERE question = ?', ['المنصة بتغطي الفيزياء من الصف الرابع الابتدائي لحد الصف الثالث الثانوي، بكل أجزائها وفصولها الدراسية، مع شرح مبسط يناسب كل مرحلة ومسائل على نمط الامتحان.', 'إيه الصفوف اللي بتغطيها المنصة؟']);
   const schedFaqCount = await d.get("SELECT COUNT(*) AS c FROM faqs WHERE question = 'في مواعيد حصص أوفلاين (حضورية)؟'");

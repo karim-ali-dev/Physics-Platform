@@ -32,10 +32,17 @@ export async function api(path, options = {}) {
   return data;
 }
 
+function ytIdFrom(url) {
+  const s = String(url || '').replace(/^https?:\/\//i, '');
+  const m = s.match(/(?:youtube\.com\/(?:watch|embed|shorts|live)\/?\??(?:.*[?&])?v=([\w-]{11})|youtube\.com\/(?:embed|shorts|live)\/([\w-]{11})|youtu\.be\/([\w-]{11}))/);
+  const id = m && (m[1] || m[2] || m[3]);
+  return id && id.length === 11 ? id : null;
+}
+
 export function getEmbedType(url) {
-  const yt = String(url || '').match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/);
-  if (yt) return { kind: 'youtube', src: `https://www.youtube.com/embed/${yt[1]}?autoplay=1&rel=0` };
-  const vimeo = String(url || '').match(/vimeo\.com\/(\d+)/);
-  if (vimeo) return { kind: 'vimeo', src: `https://player.vimeo.com/video/${vimeo[1]}?autoplay=1` };
+  const yt = ytIdFrom(url);
+  if (yt) return { kind: 'youtube', id: yt, src: `https://www.youtube.com/embed/${yt}?rel=0&playsinline=1` };
+  const vimeo = String(url || '').match(/(?:vimeo\.com\/(?:video\/)?|player\.vimeo\.com\/video\/)(\d+)/);
+  if (vimeo) return { kind: 'vimeo', id: vimeo[1], src: `https://player.vimeo.com/video/${vimeo[1]}?byline=0&portrait=0` };
   return { kind: 'file', src: url };
 }

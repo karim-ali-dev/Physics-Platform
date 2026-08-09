@@ -101,6 +101,11 @@ export default function MaterialsAdmin() {
               onFileName={(name) => setForm({ ...form, file_name: name })}
               onFileSize={(size) => setForm({ ...form, file_size: size })}
             />
+            {form.file_url && (
+              <p className="mt-2 text-xs font-semibold text-emerald-300">
+                ✓ اتخزّن الملف على السيرفر — لسه اضغط زر <span className="font-black">(إضافة الملف)</span> تحت علشان يظهر للطلاب
+              </p>
+            )}
           </Field>
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="الترتيب">

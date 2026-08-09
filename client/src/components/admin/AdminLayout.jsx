@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import {
   LayoutDashboard, BookOpen, PlaySquare, ClipboardCheck, Users, Star, HelpCircle,
-  Inbox, Settings, ShieldCheck, LogOut, Menu, X, Atom, ExternalLink, CalendarDays, MailQuestion, Wallet, Building2, FileText
+  Inbox, Settings, ShieldCheck, LogOut, Menu, X, Atom, ExternalLink, CalendarDays, MailQuestion, Wallet, Building2, FileText, MessagesSquare, Bell
 } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { ADMIN_PATH } from '../../config';
@@ -20,6 +20,8 @@ const items = [
   { to: `${ADMIN_PATH}/bookings`, icon: Building2, label: 'حجوزات السنتر' },
   { to: `${ADMIN_PATH}/students`, icon: Users, label: 'الطلاب' },
   { to: `${ADMIN_PATH}/materials`, icon: FileText, label: 'ملفات المذاكرة' },
+  { to: `${ADMIN_PATH}/community`, icon: MessagesSquare, label: 'الكوميونتي' },
+  { to: `${ADMIN_PATH}/notifications`, icon: Bell, label: 'إشعارات الطلاب' },
   { to: `${ADMIN_PATH}/testimonials`, icon: Star, label: 'آراء الطلاب' },
   { to: `${ADMIN_PATH}/faqs`, icon: HelpCircle, label: 'الأسئلة الشائعة' },
   { to: `${ADMIN_PATH}/messages`, icon: Inbox, label: 'الرسائل' },

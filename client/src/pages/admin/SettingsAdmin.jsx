@@ -55,6 +55,22 @@ const groups = [
     ]
   },
   {
+    title: 'الذكاء الاصطناعي (مساعد مستر أحمد الذكي)',
+    fields: [
+      ['gemini_api_key', 'مفتاح Gemini API — مجاني من aistudio.google.com/app/apikey', 'password'],
+      ['gemini_model', 'موديل Gemini (اتركه افتراضي: gemini-flash-latest)', 'text']
+    ]
+  },
+  {
+    title: 'التسجيل الاجتماعي (Google / Facebook)',
+    fields: [
+      ['google_client_id', 'Google Client ID', 'text'],
+      ['google_client_secret', 'Google Client Secret', 'password'],
+      ['facebook_app_id', 'Facebook App ID', 'text'],
+      ['facebook_app_secret', 'Facebook App Secret', 'password']
+    ]
+  },
+  {
     title: 'أرقام الإحصائيات',
     fields: [
       ['stats_students', 'عدد الطلاب', 'number'],
@@ -143,10 +159,10 @@ export default function SettingsAdmin() {
                   <TextArea value={settings[key] || ''} onChange={set(key)} />
                 ) : (
                   <TextInput
-                    type={type === 'number' ? 'number' : 'text'}
+                    type={type === 'number' ? 'number' : type === 'password' ? 'password' : 'text'}
                     value={settings[key] || ''}
                     onChange={set(key)}
-                    dir={type === 'text' && (key === 'phone' || key === 'whatsapp' || key === 'email' || key.includes('.') ) ? 'ltr' : 'rtl'}
+                    dir={['phone', 'whatsapp', 'email', 'google_client_id', 'google_client_secret', 'facebook_app_id', 'facebook_app_secret', 'gemini_api_key', 'gemini_model'].includes(key) ? 'ltr' : 'rtl'}
                   />
                 )}
               </Field>

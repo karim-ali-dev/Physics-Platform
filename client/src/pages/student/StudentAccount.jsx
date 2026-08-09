@@ -1,19 +1,34 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { UserRound, KeyRound, LogOut, BookOpen, PlayCircle, ClipboardCheck, Award, LogIn, Wallet, FileText } from 'lucide-react';
+import { UserRound, KeyRound, LogOut, BookOpen, PlayCircle, ClipboardCheck, Award, LogIn, Wallet, FileText, Bell, CheckCheck, MapPin, Star, Send, Loader2 } from 'lucide-react';
 import { api } from '../../api';
 import { useApp } from '../../store/AppContext';
 import Spinner from '../../components/Spinner';
-import { fmtDateTime } from '../../utils/time';
+import BookingForm from '../../components/BookingForm';
+import { fmtDateTime, timeAgo } from '../../utils/time';
+
+const REVIEW_STATUS = {
+  pending: { label: 'قيد المراجعة', cls: 'bg-amber-400/15 text-amber-300' },
+  approved: { label: 'مقبول ✓', cls: 'bg-emerald-500/15 text-emerald-300' },
+  rejected: { label: 'مرفوض', cls: 'bg-red-500/15 text-red-300' }
+};
 
 export default function StudentAccount() {
   const { customer, customerLogout } = useApp();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [payments, setPayments] = useState([]);
+  const [notifs, setNotifs] = useState([]);
+  const [unread, setUnread] = useState(0);
   const [form, setForm] = useState({ current_password: '', new_password: '', confirm: '' });
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [reviews, setReviews] = useState([]);
+  const [rating, setRating] = useState(5);
+  const [hoverStar, setHoverStar] = useState(0);
+  const [reviewText, setReviewText] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewMsg, setReviewMsg] = useState('');
 
   useEffect(() => {
     if (!customer) { navigate('/student/login', { replace: true }); return; }
@@ -21,11 +36,40 @@ export default function StudentAccount() {
       .then(setData)
       .catch(() => setData({ stats: {}, enrollments: [] }));
     api('/api/customer/payments').then((d) => setPayments(d.payments || [])).catch(() => {});
+    api('/api/customer/notifications').then((d) => { setNotifs(d.notifications || []); setUnread(d.unread || 0); }).catch(() => {});
+    api('/api/customer/my-testimonials').then((d) => setReviews(d.testimonials || [])).catch(() => {});
   }, [customer, navigate]);
+
+  const readAll = async () => {
+    setNotifs((arr) => arr.map((x) => ({ ...x, read: 1 })));
+    setUnread(0);
+    api('/api/customer/notifications/read-all', { method: 'POST' }).catch(() => {});
+  };
 
   const doLogout = async () => {
     await customerLogout();
     navigate('/student/login');
+  };
+
+  const submitReview = async (e) => {
+    e.preventDefault();
+    if (!reviewText.trim()) { setReviewMsg('اكتب رأيك في المنصة الأول'); return; }
+    setReviewBusy(true);
+    setReviewMsg('');
+    try {
+      await api('/api/testimonials', {
+        method: 'POST',
+        body: JSON.stringify({ content: reviewText.trim(), rating })
+      });
+      setReviewText('');
+      setRating(5);
+      setReviewMsg('شكرًا لرأيك 🤍 — التقييم مش هيظهر في الموقع غير بعد موافقة مستر أحمد عليه.');
+      api('/api/customer/my-testimonials').then((d) => setReviews(d.testimonials || [])).catch(() => {});
+    } catch (ex) {
+      setReviewMsg(ex.message || 'حصلت مشكلة');
+    } finally {
+      setReviewBusy(false);
+    }
   };
 
   const submit = async (e) => {
@@ -77,6 +121,36 @@ export default function StudentAccount() {
         </button>
       </div>
 
+      {customer.status === 'pending' && (
+        <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-7 text-amber-200">
+          <b>حسابك لسه قيد المراجعة 🕐</b> — مستر أحمد هيفعّل حسابك أول ما يتأكد إنك طالب حقيقي (شغال على الطلبات الجديدة باستمرار).
+          بعد التفعيل هتقدر تسجل في الكورسات وتشوف الدروس وتحل الاختبارات فوراً.
+        </div>
+      )}
+      {customer.status === 'blocked' && (
+        <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm leading-7 text-red-200">
+          <b>حسابك متوقف ⛔</b> — لو كان في خطأ تواصل مع مستر أحمد على الواتساب من صفحة تواصل معنا.
+        </div>
+      )}
+
+      <section id="booking" className="mt-6 scroll-mt-24">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-500/30 bg-gradient-to-l from-brand-600/20 to-neon-400/10 p-5">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-neon-400 shadow-glow">
+              <MapPin size={20} className="text-pure" />
+            </span>
+            <div>
+              <div className="font-black text-lg leading-tight">احجز مكانك في السنتر (حضوري)</div>
+              <div className="mt-0.5 text-sm text-white/55">اكتب بياناتك، ومستر أحمد هيتواصل معاك لتأكيد الحجز</div>
+            </div>
+          </div>
+          <Link to="/schedule" className="rounded-xl bg-brand-500/15 px-4 py-2 text-sm font-bold text-brand-300 transition-colors hover:bg-brand-500/25">
+            شوف مواعيد الدروس ←
+          </Link>
+        </div>
+        <BookingForm className="ring-1 ring-brand-500/30" />
+      </section>
+
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map((s) => (
           <div key={s.label} className="card flex items-center gap-4 p-5">
@@ -90,6 +164,39 @@ export default function StudentAccount() {
           </div>
         ))}
       </div>
+
+      <section id="notifications" className="card mt-6 scroll-mt-24 p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-lg font-black">
+            <Bell size={20} className="text-brand-400" /> إشعارات من مستر أحمد
+            {unread > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-black text-pure">{unread} جديد</span>}
+          </h2>
+          {unread > 0 && (
+            <button onClick={readAll} className="flex items-center gap-1.5 text-xs font-bold text-brand-300 hover:text-brand-200">
+              <CheckCheck size={14} /> تحديد الكل كمقروء
+            </button>
+          )}
+        </div>
+        {notifs.length === 0 ? (
+          <p className="py-6 text-center text-sm text-white/45">مفيش إشعارات لسه — مستر أحمد بيبعتلك إعلانات ومراجعات من هنا 🔔</p>
+        ) : (
+          <div className="space-y-2.5">
+            {notifs.map((n) => (
+              <div key={n.id} className={`rounded-xl border border-white/10 bg-ink-900 p-4 ${n.read ? 'opacity-60' : ''}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-sm font-extrabold">
+                    {!n.read && <span className="h-2 w-2 rounded-full bg-brand-400" />}
+                    {n.title}
+                  </div>
+                  <span className="text-[11px] text-white/35">{timeAgo(n.created_at)}</span>
+                </div>
+                <p className="mt-1.5 whitespace-pre-line text-sm leading-6 text-white/65">{n.body}</p>
+                {n.link && <Link to={n.link} className="mt-2 inline-block rounded-lg bg-brand-500/10 px-3 py-1.5 text-xs font-bold text-brand-300 hover:bg-brand-500/20">افتح الصفحة ←</Link>}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <Link to="/student/materials" className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-brand-500/30 bg-gradient-to-l from-brand-500/15 to-neon-400/10 p-5 transition-colors hover:border-brand-400/60">
         <div className="flex items-center gap-4">

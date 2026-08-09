@@ -11,6 +11,7 @@ const {
 } = require('../security');
 const { requireCustomer } = require('../middleware/customerAuth');
 const { upload, validateFileSignature } = require('../middleware/upload');
+const { saveFile, deleteByUrl } = require('../storage');
 const {
   validate,
   studentRegisterSchema,
@@ -30,6 +31,24 @@ const router = express.Router();
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`).replace(/\/$/, '');
 
 const CUSTOMER_COOKIE = 'ctoken';
+
+let oauthCache = null;
+let oauthCacheTs = 0;
+async function oauthConfig() {
+  if (oauthCache && Date.now() - oauthCacheTs < 30000) return oauthCache;
+  let settings = {};
+  try {
+    (await db.all('SELECT key, value FROM settings')).forEach((s) => { settings[s.key] = s.value; });
+  } catch (_) { /* ignore */ }
+  oauthCache = {
+    googleId: process.env.GOOGLE_CLIENT_ID || (settings.google_client_id || '').trim(),
+    googleSecret: process.env.GOOGLE_CLIENT_SECRET || (settings.google_client_secret || '').trim(),
+    fbId: process.env.FACEBOOK_APP_ID || (settings.facebook_app_id || '').trim(),
+    fbSecret: process.env.FACEBOOK_APP_SECRET || (settings.facebook_app_secret || '').trim()
+  };
+  oauthCacheTs = Date.now();
+  return oauthCache;
+}
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -62,16 +81,19 @@ function publicCustomer(c) {
   return {
     id: c.id, email: c.email, name: c.name, avatar: c.avatar || '',
     phone: c.phone || '', parent_phone: c.parent_phone || '',
-    governorate: c.governorate || '', academic_year: c.academic_year || ''
+    governorate: c.governorate || '', academic_year: c.academic_year || '',
+    status: c.status || 'active'
   };
 }
+
+const statusMessage = (status) => status === 'blocked'
+  ? 'حسابك متوقف على المنصة — تواصل مع مستر أحمد على الواتساب.'
+  : 'حسابك لسه قيد المراجعة — مستر أحمد هيفعّله أول ما يتأكد إنك طالب حقيقي. جرب تاني بعد ما يوصلك التنبيه.';
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 const safeDelete = (url) => {
-  if (!url || !String(url).startsWith('/uploads/')) return;
-  const file = path.join(uploadsDir, path.basename(url));
-  if (file.startsWith(uploadsDir)) { try { fs.unlinkSync(file); } catch (_) { /* ignore */ } }
+  deleteByUrl(url).catch(() => {});
 };
 
 /* ---------------- Register / Login ---------------- */
@@ -80,8 +102,8 @@ router.post('/register', validate(studentRegisterSchema), ah(async (req, res) =>
   const exists = await db.get('SELECT id FROM customers WHERE email = ?', [email]);
   if (exists) return res.status(409).json({ error: 'الإيميل مسجل بالفعل — سجّل دخول بدل التسجيل' });
   const now = new Date().toISOString();
-  const info = await db.run('INSERT INTO customers (email, name, password_hash, phone, parent_phone, governorate, academic_year, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [email, name, bcrypt.hashSync(password, 10), phone, parent_phone, governorate, academic_year, now]);
+  const info = await db.run('INSERT INTO customers (email, name, password_hash, phone, parent_phone, governorate, academic_year, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [email, name, bcrypt.hashSync(password, 10), phone, parent_phone, governorate, academic_year, 'pending', now]);
   const rawToken = await createSession(info.lastInsertRowid, req.headers['user-agent'], req.ip, 'customer');
   setCustomerCookie(res, rawToken);
   await audit(0, 'student_register', `${name} (${email})`, req.ip);
@@ -104,6 +126,10 @@ router.post('/login', loginLimiter, validate(studentLoginSchema), ah(async (req,
   if (!ok) {
     await audit(0, 'student_login_fail', email, ip);
     return res.status(401).json({ error: 'الإيميل أو كلمة السر غير صحيحة' });
+  }
+
+  if (row.status && row.status !== 'active') {
+    return res.status(403).json({ error: statusMessage(row.status), code: row.status });
   }
 
   await clearAttempts(email);
@@ -147,7 +173,7 @@ router.post('/forgot', forgotLimiter, validate(studentForgotSchema), ah(async (r
     }
     console.log(`[password-reset] رابط إعادة تعيين كلمة السر لـ ${row.email}: ${link}`);
     if (process.env.NODE_ENV !== 'production') {
-      return res.json({ ok: true, devLink: link, message: 'وضع التطوير: الرابط معروض هنا مباشرة (فعّل SMTP في .env عشان يبعت إيميل)' });
+      return res.json({ ok: true, devLink: link, message: 'الرابط جاهز — استخدمه خلال 30 دقيقة' });
     }
     return res.json({ ok: true, message: 'فشل إرسال الإيميل حالياً — جرب بعد شوية أو تواصل مع الدعم' });
   }
@@ -184,12 +210,12 @@ router.post('/change-password', requireCustomer, validate(studentPasswordChangeS
 router.post('/upload', requireCustomer, upload.single('file'), ah(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'من فضلك اختار ملف' });
   const kind = String(req.body.kind || 'image').toLowerCase();
-  if (!validateFileSignature(kind, req.file.path)) {
-    safeDelete('/uploads/' + req.file.filename);
+  if (!validateFileSignature(kind, req.file.buffer)) {
     return res.status(400).json({ error: 'محتوى الملف غير مطابق للصيغة المطلوبة — ارفع ملف سليم' });
   }
-  await audit(0, 'student_upload', `${kind}: ${req.file.filename}`, req.ip);
-  res.json({ url: '/uploads/' + req.file.filename });
+  const saved = await saveFile({ buffer: req.file.buffer, originalname: req.file.originalname, mimeType: req.file.mimetype });
+  await audit(0, 'student_upload', `${kind}: ${saved.filename}`, req.ip);
+  res.json({ url: saved.url });
 }));
 
 /* ---------------- Enrollments ---------------- */
@@ -259,9 +285,11 @@ router.get('/materials', requireCustomer, ah(async (req, res) => {
       m.grade = 'الكل' OR EXISTS (
         SELECT 1 FROM enrollments e JOIN courses c2 ON c2.id = e.course_id
         WHERE e.student_id = ? AND c2.grade = m.grade
+      ) OR EXISTS (
+        SELECT 1 FROM customers c3 WHERE c3.id = ? AND c3.academic_year = m.grade
       )
     )
-    ORDER BY m.is_optional ASC, m.sort_order ASC, m.id DESC`, [req.customer.id]);
+    ORDER BY m.is_optional ASC, m.sort_order ASC, m.id DESC`, [req.customer.id, req.customer.id]);
   res.json({ materials: rows });
 }));
 
@@ -355,12 +383,13 @@ router.get('/progress', requireCustomer, ah(async (req, res) => {
 }));
 
 /* ---------------- Social login status ---------------- */
-router.get('/social-status', (req, res) => {
+router.get('/social-status', ah(async (req, res) => {
+  const cfg = await oauthConfig();
   res.json({
-    google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-    facebook: Boolean(process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET)
+    google: Boolean(cfg.googleId && cfg.googleSecret),
+    facebook: Boolean(cfg.fbId && cfg.fbSecret)
   });
-});
+}));
 
 /* ---------------- OAuth helpers ---------------- */
 function oauthState(req, res) {
@@ -389,11 +418,15 @@ async function completeOAuth(res, profile) {
     await db.run(`UPDATE customers SET ${profile.provider === 'google' ? 'google_id' : 'facebook_id'} = ?, last_login = ? WHERE id = ?`,
       [profile.id, new Date().toISOString(), c.id]);
   } else {
-    const info = await db.run(`INSERT INTO customers (email, name, ${profile.provider === 'google' ? 'google_id' : 'facebook_id'}, created_at)
-      VALUES (?, ?, ?, ?)`,
+    const info = await db.run(`INSERT INTO customers (email, name, ${profile.provider === 'google' ? 'google_id' : 'facebook_id'}, status, created_at)
+      VALUES (?, ?, ?, 'pending', ?)`,
       [email, profile.name || email, profile.id, new Date().toISOString()]);
-    c = { id: info.lastInsertRowid, email, name: profile.name || email };
-    await audit(0, 'student_oauth_register', `${profile.provider}: ${email}`, res.req.ip);
+    c = { id: info.lastInsertRowid, email, name: profile.name || email, status: 'pending' };
+    await audit(0, 'student_oauth_register', `${profile.provider}: ${email} — قيد المراجعة`, res.req.ip);
+  }
+  if (c.status && c.status !== 'active') {
+    await audit(0, 'student_oauth_blocked', `${profile.provider}: ${email} — ${c.status}`, res.req.ip);
+    return res.redirect(`${BASE_URL}/student/login?error=pending`);
   }
   const rawToken = await createSession(c.id, res.req.headers['user-agent'], res.req.ip, 'customer');
   setCustomerCookie(res, rawToken);
@@ -402,19 +435,21 @@ async function completeOAuth(res, profile) {
 }
 
 /* ---------------- Google ---------------- */
-router.get('/auth/google', (req, res) => {
-  if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'تسجيل جوجل مش مفعّل — ضيف المفاتيح في .env' });
+router.get('/auth/google', ah(async (req, res) => {
+  const cfg = await oauthConfig();
+  if (!cfg.googleId) return res.status(503).json({ error: 'تسجيل جوجل غير متاح حالياً — سجّل بالإيميل أو كلم مستر أحمد على الواتساب' });
   const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_id: cfg.googleId,
     redirect_uri: `${BASE_URL}/api/customer/auth/google/callback`,
     response_type: 'code',
     scope: 'openid email profile',
     state: oauthState(req, res)
   });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
-});
+}));
 
 router.get('/auth/google/callback', ah(async (req, res) => {
+  const cfg = await oauthConfig();
   if (!verifyOAuthState(req, res)) return res.redirect(`${BASE_URL}/student/login?error=state`);
   if (req.query.error) return res.redirect(`${BASE_URL}/student/login?error=denied`);
   try {
@@ -423,8 +458,8 @@ router.get('/auth/google/callback', ah(async (req, res) => {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code: String(req.query.code),
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        client_id: cfg.googleId,
+        client_secret: cfg.googleSecret,
         redirect_uri: `${BASE_URL}/api/customer/auth/google/callback`,
         grant_type: 'authorization_code'
       })
@@ -443,30 +478,32 @@ router.get('/auth/google/callback', ah(async (req, res) => {
 }));
 
 /* ---------------- Facebook ---------------- */
-router.get('/auth/facebook', (req, res) => {
-  if (!process.env.FACEBOOK_APP_ID) return res.status(503).json({ error: 'تسجيل فيسبوك مش مفعّل — ضيف المفاتيح في .env' });
+router.get('/auth/facebook', ah(async (req, res) => {
+  const cfg = await oauthConfig();
+  if (!cfg.fbId) return res.status(503).json({ error: 'تسجيل فيسبوك غير متاح حالياً — سجّل بالإيميل أو كلم مستر أحمد على الواتساب' });
   const params = new URLSearchParams({
-    client_id: process.env.FACEBOOK_APP_ID,
+    client_id: cfg.fbId,
     redirect_uri: `${BASE_URL}/api/customer/auth/facebook/callback`,
     scope: 'email',
     state: oauthState(req, res)
   });
   res.redirect(`https://www.facebook.com/v19.0/dialog/oauth?${params}`);
-});
+}));
 
 router.get('/auth/facebook/callback', ah(async (req, res) => {
+  const cfg = await oauthConfig();
   if (!verifyOAuthState(req, res)) return res.redirect(`${BASE_URL}/student/login?error=state`);
   if (req.query.error) return res.redirect(`${BASE_URL}/student/login?error=denied`);
   try {
     const tokenRes = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?${new URLSearchParams({
-      client_id: process.env.FACEBOOK_APP_ID,
-      client_secret: process.env.FACEBOOK_APP_SECRET,
+      client_id: cfg.fbId,
+      client_secret: cfg.fbSecret,
       redirect_uri: `${BASE_URL}/api/customer/auth/facebook/callback`,
       code: String(req.query.code)
     })}`);
     const tokens = await tokenRes.json();
     if (!tokens.access_token) return res.redirect(`${BASE_URL}/student/login?error=token`);
-    const proof = crypto.createHmac('sha256', process.env.FACEBOOK_APP_SECRET).update(tokens.access_token).digest('hex');
+    const proof = crypto.createHmac('sha256', cfg.fbSecret).update(tokens.access_token).digest('hex');
     const meRes = await fetch(`https://graph.facebook.com/me?${new URLSearchParams({
       fields: 'id,name,email',
       access_token: tokens.access_token,
@@ -478,6 +515,33 @@ router.get('/auth/facebook/callback', ah(async (req, res) => {
   } catch (_) {
     res.redirect(`${BASE_URL}/student/login?error=server`);
   }
+}));
+
+/* ---------------- Notifications (إشعاراتي) ---------------- */
+router.get('/notifications', requireCustomer, ah(async (req, res) => {
+  const notifications = await db.all(`SELECT n.id, n.title, n.body, n.link, n.created_at,
+      CASE WHEN r.read_at IS NULL THEN 0 ELSE 1 END AS read
+    FROM notifications n
+    LEFT JOIN notification_reads r ON r.notification_id = n.id AND r.customer_id = ?
+    ORDER BY n.id DESC LIMIT 100`, [req.customer.id]);
+  const unread = notifications.filter((n) => !n.read).length;
+  res.json({ notifications, unread });
+}));
+
+router.post('/notifications/:id/read', requireCustomer, ah(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const row = await db.get('SELECT id FROM notifications WHERE id = ?', [id]);
+  if (!row) return res.status(404).json({ error: 'الإشعار غير موجود' });
+  await db.run('INSERT INTO notification_reads (notification_id, customer_id, read_at) VALUES (?, ?, ?) ON CONFLICT(notification_id, customer_id) DO NOTHING',
+    [id, req.customer.id, new Date().toISOString()]);
+  res.json({ ok: true });
+}));
+
+router.post('/notifications/read-all', requireCustomer, ah(async (req, res) => {
+  const now = new Date().toISOString();
+  await db.run('INSERT INTO notification_reads (notification_id, customer_id, read_at) SELECT id, ?, ? FROM notifications n WHERE NOT EXISTS (SELECT 1 FROM notification_reads r WHERE r.notification_id = n.id AND r.customer_id = ?)',
+    [req.customer.id, now, req.customer.id]);
+  res.json({ ok: true, message: 'اتقرت كل الإشعارات' });
 }));
 
 module.exports = router;

@@ -53,6 +53,18 @@ export default function CustomerAccount() {
       <h1 className="text-3xl font-black">حسابي</h1>
       <p className="mt-1 text-sm text-white/50">إدارة حسابك وطلباتك في مكان واحد.</p>
 
+      {customer.status === 'pending' && (
+        <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-7 text-amber-200">
+          <b>حسابك لسه قيد المراجعة 🕐</b> — مستر أحمد هيفعّل حسابك أول ما يتأكد إنك طالب حقيقي.
+          بعد التفعيل هتقدر تسجل في الكورسات وتشوف الدروس وتحل الاختبارات فوراً.
+        </div>
+      )}
+      {customer.status === 'blocked' && (
+        <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm leading-7 text-red-200">
+          <b>حسابك متوقف ⛔</b> — لو كان في خطأ تواصل مع مستر أحمد على الواتساب من صفحة تواصل معنا.
+        </div>
+      )}
+
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-1">
           <div className="card p-6">

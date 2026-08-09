@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Save, Loader2, ArrowRight } from 'lucide-react';
+import { Save, Loader2, ArrowRight, Gift, Wallet } from 'lucide-react';
 import { api } from '../../api';
 import { ADMIN_PATH } from '../../config';
 import { PageHeader, Field, TextInput, TextArea, Toggle, Alert, ImageUploader } from '../../components/admin/ui';
@@ -69,6 +69,8 @@ export default function CourseForm() {
 
   if (loading) return <Spinner label="جاري تحميل الكورس..." />;
 
+  const isPaid = Number(form.price_amount) > 0;
+
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title={isEdit ? 'تعديل الكورس' : 'إضافة كورس جديد'} subtitle="بيانات الكورس بتظهر في صفحة الكورسات للطلاب" />
@@ -116,12 +118,38 @@ export default function CourseForm() {
           <Field label="صورة الغلاف">
             <ImageUploader value={form.cover} onChange={(v) => setForm({ ...form, cover: v })} label="صورة الغلاف" />
           </Field>
-          <Field label="السعر" hint="مثال: مجاني / 200 جنيه">
-            <TextInput value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} maxLength={200} placeholder="مجاني" />
+          <Field label="نوع الكورس" hint="مجاني = الطالب يسجل فوراً — مدفوع = يحوّل فودافون كاش وبعد موافقتك يتفعّل">
+            <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-ink-900 p-1.5">
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, price_amount: 0, price: f.price || 'مجاني' }))}
+                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-extrabold transition-colors ${!isPaid ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40' : 'text-white/55 hover:bg-white/5'}`}
+              >
+                <Gift size={16} /> مجاني بالكامل
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, price_amount: Number(f.price_amount) > 0 ? f.price_amount : 100 }))}
+                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-extrabold transition-colors ${isPaid ? 'bg-brand-500/20 text-brand-200 ring-1 ring-brand-500/40' : 'text-white/55 hover:bg-white/5'}`}
+              >
+                <Wallet size={16} /> مدفوع (فودافون كاش)
+              </button>
+            </div>
           </Field>
-          <Field label="قيمة الاشتراك بالجنيه" hint="لو الكورس مدفوع اكتب السعر بالجنيه (مثال: 300) — لو فاضي الكورس يبقى مجاني ويتسجل فوراً">
-            <TextInput type="number" min="0" step="0.01" value={form.price_amount} onChange={(e) => setForm({ ...form, price_amount: e.target.value })} placeholder="0 = مجاني" />
-          </Field>
+          {isPaid ? (
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field label="سعر الكورس بالجنيه" required hint="مثال: 300">
+                <TextInput type="number" min="1" step="0.01" value={form.price_amount} onChange={(e) => setForm({ ...form, price_amount: e.target.value })} placeholder="300" required />
+              </Field>
+              <Field label="العرض على بطاقة الكورس" hint="مثال: 300 جنيه">
+                <TextInput value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} maxLength={200} placeholder="300 جنيه" />
+              </Field>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm font-semibold text-emerald-300">
+              الكورس مجاني بالكامل — الطلاب هيسجلوا فيه فوراً من غير أي دفع.
+            </div>
+          )}
         </div>
 
         <div className="card space-y-5 p-6">

@@ -4,6 +4,7 @@ const path = require('path');
 const { db, uploadsDir } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { upload, validateFileSignature } = require('../middleware/upload');
+const { saveFile, deleteByUrl } = require('../storage');
 const {
   validate, courseSchema, lessonSchema, quizSchema, questionSchema,
   testimonialSchema, testimonialStatusSchema, faqSchema, settingsSchema, scheduleSchema, paymentStatusSchema,
@@ -11,7 +12,7 @@ const {
 } = require('../middleware/validate');
 const { audit } = require('../security');
 const { getCached, setCached, clearCache } = require('../cache');
-const { sendSpreadsheet, isoToDisplay } = require('../exports');
+const { sendSpreadsheet, sendWorkbook, isoToDisplay } = require('../exports');
 const { ah } = require('../asyncHandler');
 
 const router = express.Router();
@@ -28,11 +29,36 @@ const safePath = (url) => {
 };
 
 const deleteUpload = (url) => {
-  if (url && String(url).startsWith('/uploads/')) {
-    const file = safePath(url);
-    if (file) { try { fs.unlinkSync(file); } catch (_) { /* ignore */ } }
-  }
+  deleteByUrl(url).catch(() => {});
 };
+
+function bookingListQuery(q) {
+  const where = [];
+  const params = [];
+  if (q.status === 'new' || q.status === 'done') {
+    where.push('status = ?');
+    params.push(q.status);
+  }
+  if (q.governorate) {
+    where.push('governorate = ?');
+    params.push(String(q.governorate));
+  }
+  if (q.academic_year) {
+    where.push('academic_year = ?');
+    params.push(String(q.academic_year));
+  }
+  if (q.grade) {
+    where.push('grade = ?');
+    params.push(String(q.grade));
+  }
+  if (q.search) {
+    where.push('(student_name LIKE ? OR parent_name LIKE ? OR phone LIKE ? OR parent_phone LIKE ?)');
+    const like = `%${String(q.search).trim()}%`;
+    params.push(like, like, like, like);
+  }
+  const sql = `SELECT * FROM bookings${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC`;
+  return { sql, params };
+}
 
 /* ---------------- Dashboard ---------------- */
 router.get('/dashboard', ah(async (req, res) => {
@@ -101,12 +127,12 @@ router.get('/dashboard', ah(async (req, res) => {
 router.post('/upload', upload.single('file'), ah(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'من فضلك اختر ملف' });
   const kind = String(req.body.kind || 'image').toLowerCase();
-  if (!validateFileSignature(kind, req.file.path)) {
-    deleteUpload('/uploads/' + req.file.filename);
+  if (!validateFileSignature(kind, req.file.buffer)) {
     return res.status(400).json({ error: 'محتوى الملف غير مطابق للصيغة المطلوبة — ارفع ملف سليم' });
   }
-  await audit(req.user.id, 'upload', `${kind}: ${req.file.filename}`, req.ip);
-  res.json({ url: '/uploads/' + req.file.filename });
+  const saved = await saveFile({ buffer: req.file.buffer, originalname: req.file.originalname, mimeType: req.file.mimetype });
+  await audit(req.user.id, 'upload', `${kind}: ${saved.filename}`, req.ip);
+  res.json({ url: saved.url });
 }));
 
 /* ---------------- Courses ---------------- */
@@ -302,12 +328,28 @@ router.delete('/questions/:id', ah(async (req, res) => {
 
 /* ---------------- Students ---------------- */
 router.get('/students', ah(async (req, res) => {
-  const rows = await db.all(`SELECT c.id, c.name, c.email, c.created_at, c.last_login,
+  const rows = await db.all(`SELECT c.id, c.name, c.email, c.status, c.created_at, c.last_login,
     (SELECT COUNT(*) FROM enrollments e WHERE e.student_id = c.id) AS courses_count,
     (SELECT COUNT(*) FROM lesson_progress p WHERE p.student_id = c.id AND p.watched = 1) AS watched_count,
     (SELECT COUNT(*) FROM quiz_attempts a WHERE a.student_id = c.id) AS attempts_count
     FROM customers c ORDER BY c.id DESC LIMIT 1000`);
   res.json({ students: rows });
+}));
+
+router.put('/students/:id/status', ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  const { status } = (req.body && req.body) || {};
+  if (!['active', 'blocked', 'pending'].includes(status)) {
+    return res.status(400).json({ error: 'حالة غير صالحة' });
+  }
+  const row = await db.get('SELECT name FROM customers WHERE id = ?', [id]);
+  if (!row) return res.status(404).json({ error: 'الطالب غير موجود' });
+  await db.run('UPDATE customers SET status = ? WHERE id = ?', [status, id]);
+  await audit(req.user.id, 'student_status', `${row.name} → ${status}`, req.ip);
+  const message = status === 'active' ? 'تم تفعيل حساب الطالب — يقدر يدخل دلوقتي'
+    : status === 'blocked' ? 'تم إيقاف حساب الطالب'
+    : 'رجع الحساب لحالة قيد المراجعة';
+  res.json({ ok: true, message });
 }));
 
 router.get('/students/:id', ah(async (req, res) => {
@@ -400,11 +442,18 @@ router.get('/export/quiz/:id', ah(async (req, res) => {
 }));
 
 /* ---------------- Study Materials (ملفات المذاكرة) ---------------- */
+const ALL_GRADES = [
+  'رابعة ابتدائي', 'خامسة ابتدائي', 'سادسة ابتدائي',
+  'الصف الأول الإعدادي', 'الصف الثاني الإعدادي', 'الصف الثالث الإعدادي',
+  'الصف الأول الثانوي', 'الصف الثاني الثانوي', 'الصف الثالث الثانوي'
+];
+
 router.get('/materials/grades', ah(async (req, res) => {
-  const grades = (await db.all(`SELECT DISTINCT grade FROM courses
+  const rows = await db.all(`SELECT DISTINCT grade FROM courses
     UNION SELECT DISTINCT grade FROM materials WHERE grade != 'الكل'
-    ORDER BY grade`)).map((r) => r.grade);
-  res.json({ grades });
+    ORDER BY grade`);
+  const extra = rows.map((r) => r.grade).filter((g) => g && !ALL_GRADES.includes(g));
+  res.json({ grades: [...ALL_GRADES, ...extra] });
 }));
 
 router.get('/materials', ah(async (req, res) => {
@@ -505,15 +554,95 @@ router.delete('/payments/:id', ah(async (req, res) => {
 
 /* ---------------- Center bookings (حجز السنتر) ---------------- */
 router.get('/bookings', ah(async (req, res) => {
-  const { status } = req.query;
-  let q = 'SELECT * FROM bookings';
-  const params = [];
-  if (status === 'new' || status === 'done') {
-    q += ' WHERE status = ?';
-    params.push(status);
+  const q = bookingListQuery(req.query);
+  res.json({ bookings: await db.all(q.sql, q.params) });
+}));
+
+router.get('/bookings/filters', ah(async (req, res) => {
+  const [govs, years, grades] = await Promise.all([
+    db.all("SELECT DISTINCT governorate FROM bookings WHERE governorate IS NOT NULL AND governorate != '' ORDER BY governorate"),
+    db.all("SELECT DISTINCT academic_year FROM bookings WHERE academic_year IS NOT NULL AND academic_year != '' ORDER BY academic_year DESC"),
+    db.all("SELECT DISTINCT grade FROM bookings WHERE grade IS NOT NULL AND grade != '' ORDER BY grade")
+  ]);
+  res.json({
+    governorates: govs.map((r) => r.governorate),
+    academicYears: years.map((r) => r.academic_year),
+    grades: grades.map((r) => r.grade)
+  });
+}));
+
+router.get('/bookings/export', ah(async (req, res) => {
+  const { sql, params } = bookingListQuery(req.query);
+  const rows = await db.all(sql, params);
+  const columns = [
+    { header: 'م', width: 6 },
+    { header: 'اسم الطالب', width: 26 },
+    { header: 'رقم موبايل الطالب', width: 20 },
+    { header: 'اسم ولي الأمر', width: 26 },
+    { header: 'رقم موبايل ولي الأمر', width: 20 },
+    { header: 'المحافظة', width: 16 },
+    { header: 'السنة الدراسية', width: 16 },
+    { header: 'الصف الدراسي', width: 20 },
+    { header: 'ملاحظات', width: 40 },
+    { header: 'تاريخ الحجز', width: 20 },
+    { header: 'الحالة', width: 14 }
+  ];
+  const data = rows.map((r, i) => [
+    i + 1, r.student_name || '', r.phone || '', r.parent_name || '', r.parent_phone || '',
+    r.governorate || '', r.academic_year || '', r.grade || '', r.note || '',
+    isoToDisplay(r.created_at), r.status === 'done' ? 'تم التواصل' : 'جديدة'
+  ]);
+
+  if (exportFormat(req.query.format) === 'csv') {
+    return sendSpreadsheet(res, 'csv', {
+      filename: `bookings-${new Date().toISOString().slice(0, 10)}`,
+      sheet: 'الحجوزات',
+      columns,
+      rows: data
+    });
   }
-  q += ' ORDER BY id DESC';
-  res.json({ bookings: await db.all(q, params) });
+
+  const sheetRows = (label) => [
+    { header: 'م', width: 6 },
+    { header: label, width: 34 },
+    { header: 'عدد الحجوزات', width: 18 }
+  ];
+  const stat = (list) => list.map((x, i) => [i + 1, x.v || '(فاضي)', x.c]);
+
+  const [byGov, byYear, byGrade, byStatus] = await Promise.all([
+    db.all(`SELECT COALESCE(NULLIF(governorate,''), '(فاضي)') AS v, COUNT(*) AS c FROM bookings GROUP BY v ORDER BY c DESC`),
+    db.all(`SELECT COALESCE(NULLIF(academic_year,''), '(فاضي)') AS v, COUNT(*) AS c FROM bookings GROUP BY v ORDER BY c DESC`),
+    db.all(`SELECT COALESCE(NULLIF(grade,''), '(فاضي)') AS v, COUNT(*) AS c FROM bookings GROUP BY v ORDER BY c DESC`),
+    db.all(`SELECT COALESCE(NULLIF(status,''), '(فاضي)') AS v, COUNT(*) AS c FROM bookings GROUP BY v ORDER BY c DESC`)
+  ]);
+
+  await sendWorkbook(res, `bookings-${new Date().toISOString().slice(0, 10)}`, [
+    {
+      name: 'كل الحجوزات',
+      columns,
+      rows: data
+    },
+    {
+      name: 'حسب المحافظة',
+      columns: sheetRows('المحافظة'),
+      rows: stat(byGov)
+    },
+    {
+      name: 'حسب السنة الدراسية',
+      columns: sheetRows('السنة الدراسية'),
+      rows: stat(byYear)
+    },
+    {
+      name: 'حسب الصف',
+      columns: sheetRows('الصف الدراسي'),
+      rows: stat(byGrade)
+    },
+    {
+      name: 'حسب الحالة',
+      columns: sheetRows('الحالة'),
+      rows: stat(byStatus)
+    }
+  ]);
 }));
 
 router.patch('/bookings/:id', ah(async (req, res) => {
@@ -674,7 +803,13 @@ router.get('/help-requests', ah(async (req, res) => {
     params.push(status);
   }
   q += ' ORDER BY id DESC';
-  res.json({ requests: await db.all(q, params) });
+  const requests = await db.all(q, params);
+  const ids = requests.map((r) => r.id);
+  const replies = ids.length ? await db.all(`SELECT id, help_id, reply, created_at FROM help_replies WHERE help_id IN (${ids.map(() => '?').join(',')}) ORDER BY id ASC`, ids) : [];
+  const byHelp = {};
+  replies.forEach((r) => { (byHelp[r.help_id] = byHelp[r.help_id] || []).push({ id: r.id, reply: r.reply, created_at: r.created_at }); });
+  requests.forEach((r) => { r.replies = byHelp[r.id] || []; });
+  res.json({ requests });
 }));
 
 router.patch('/help-requests/:id', ah(async (req, res) => {
@@ -687,6 +822,18 @@ router.patch('/help-requests/:id', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+router.post('/help-requests/:id/reply', ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  const row = await db.get('SELECT id FROM help_requests WHERE id = ?', [id]);
+  if (!row) return res.status(404).json({ error: 'الطلب غير موجود' });
+  const reply = String(req.body && req.body.reply || '').trim().slice(0, 3000);
+  if (!reply) return res.status(400).json({ error: 'اكتب ردك الأول' });
+  await db.run('INSERT INTO help_replies (help_id, reply, created_at) VALUES (?, ?, ?)', [id, reply, new Date().toISOString()]);
+  await db.run("UPDATE help_requests SET status = 'done' WHERE id = ?", [id]);
+  await audit(req.user.id, 'help_request_reply', `help#${id}`, req.ip);
+  res.json({ ok: true, message: 'وصل ردك للطالب، هيظهر في شات المساعد على جهازه' });
+}));
+
 router.delete('/help-requests/:id', ah(async (req, res) => {
   const id = toInt(req.params.id);
   const row = await db.get('SELECT image_url FROM help_requests WHERE id = ?', [id]);
@@ -695,6 +842,84 @@ router.delete('/help-requests/:id', ah(async (req, res) => {
   deleteUpload(row.image_url);
   await audit(req.user.id, 'help_request_delete', `help#${id}`, req.ip);
   res.json({ ok: true, message: 'تم حذف الطلب' });
+}));
+
+/* ---------------- Community moderation ---------------- */
+router.get('/community', ah(async (req, res) => {
+  const { status } = req.query;
+  let q = 'SELECT * FROM community_posts';
+  const params = [];
+  if (status === 'active' || status === 'hidden') {
+    q += ' WHERE status = ?';
+    params.push(status);
+  }
+  q += ' ORDER BY id DESC LIMIT 200';
+  const posts = await db.all(q, params);
+  const ids = posts.map((p) => p.id);
+  const comments = ids.length ? await db.all(`SELECT c.* FROM community_comments c WHERE c.post_id IN (${ids.map(() => '?').join(',')}) ORDER BY c.id ASC`, ids) : [];
+  const byPost = {};
+  comments.forEach((c) => { (byPost[c.post_id] = byPost[c.post_id] || []).push(c); });
+  posts.forEach((p) => { p.comments = byPost[p.id] || []; });
+  res.json({ posts });
+}));
+
+router.patch('/community/:id', ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  const status = req.body && req.body.status === 'hidden' ? 'hidden' : 'active';
+  const row = await db.get('SELECT id FROM community_posts WHERE id = ?', [id]);
+  if (!row) return res.status(404).json({ error: 'البوست غير موجود' });
+  await db.run('UPDATE community_posts SET status = ? WHERE id = ?', [status, id]);
+  await audit(req.user.id, 'community_post_' + status, `post#${id}`, req.ip);
+  res.json({ ok: true });
+}));
+
+router.delete('/community/:id', ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  await db.run('DELETE FROM community_posts WHERE id = ?', [id]);
+  await db.run('DELETE FROM community_comments WHERE post_id = ?', [id]);
+  await audit(req.user.id, 'community_post_delete', `post#${id}`, req.ip);
+  res.json({ ok: true, message: 'تم حذف البوست' });
+}));
+
+router.delete('/community/:id/comments/:commentId', ah(async (req, res) => {
+  const commentId = toInt(req.params.commentId);
+  await db.run('DELETE FROM community_comments WHERE id = ?', [commentId]);
+  await audit(req.user.id, 'community_comment_delete', `comment#${commentId}`, req.ip);
+  res.json({ ok: true, message: 'تم حذف التعليق' });
+}));
+
+/* ---------------- Notifications (إشعارات للطلاب) ---------------- */
+router.get('/notifications', ah(async (req, res) => {
+  const notifications = await db.all('SELECT * FROM notifications ORDER BY id DESC LIMIT 200');
+  const ids = notifications.map((n) => n.id);
+  const stats = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    const rows = await db.all(`SELECT notification_id, COUNT(*) AS cnt FROM notification_reads WHERE notification_id IN (${ph}) GROUP BY notification_id`, ids);
+    rows.forEach((r) => { stats[r.notification_id] = r.cnt; });
+  }
+  const totalCustomers = (await db.get('SELECT COUNT(*) AS c FROM customers')).c;
+  notifications.forEach((n) => { n.reads = stats[n.id] || 0; });
+  res.json({ notifications, totalCustomers });
+}));
+
+router.post('/notifications', ah(async (req, res) => {
+  const title = String(req.body && req.body.title || '').trim().slice(0, 200);
+  const body = String(req.body && req.body.body || '').trim().slice(0, 2000);
+  const link = String(req.body && req.body.link || '').trim().slice(0, 500);
+  if (!title || !body) return res.status(400).json({ error: 'اكتب عنوان ونص الإشعار' });
+  const now = new Date().toISOString();
+  const r = await db.run('INSERT INTO notifications (title, body, link, created_at) VALUES (?, ?, ?, ?)', [title, body, link, now]);
+  await audit(req.user.id, 'notification_send', `notification#${r.lastInsertRowid} — ${title.slice(0, 60)}`, req.ip);
+  res.status(201).json({ ok: true, id: r.lastInsertRowid, message: 'اتبعث الإشعار لكل الطلاب' });
+}));
+
+router.delete('/notifications/:id', ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  await db.run('DELETE FROM notifications WHERE id = ?', [id]);
+  await db.run('DELETE FROM notification_reads WHERE notification_id = ?', [id]);
+  await audit(req.user.id, 'notification_delete', `notification#${id}`, req.ip);
+  res.json({ ok: true, message: 'تم حذف الإشعار' });
 }));
 
 /* ---------------- Messages ---------------- */
@@ -732,7 +957,11 @@ router.put('/settings', validate(settingsSchema), ah(async (req, res) => {
     'phone', 'whatsapp', 'email', 'city', 'instagram', 'tiktok', 'youtube', 'facebook',
     'footer_tagline', 'stats_students', 'stats_courses', 'stats_years', 'stats_lessons',
     'schedule_note', 'schedule_address',
-    'vodafone_cash', 'vodafone_cash_name'
+    'vodafone_cash', 'vodafone_cash_name',
+    'show_social', 'show_email',
+    'gemini_api_key', 'gemini_model',
+    'google_client_id', 'google_client_secret',
+    'facebook_app_id', 'facebook_app_secret'
   ]);
   const upsert = 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value';
   let changed = 0;

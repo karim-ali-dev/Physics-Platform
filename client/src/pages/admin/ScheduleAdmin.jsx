@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Pencil, Loader2, CalendarDays, Clock, X, Eye, EyeOff, Copy, Grid2x2, List, Zap, FileDown, AlertTriangle, ExternalLink, CalendarClock } from 'lucide-react';
+import { Plus, Pencil, Loader2, CalendarDays, Clock, X, Eye, EyeOff, Copy, Grid2x2, List, Zap, FileDown, AlertTriangle, ExternalLink, CalendarClock, Layers } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { api } from '../../api';

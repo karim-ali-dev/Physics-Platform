@@ -21,6 +21,7 @@ const FILTERS = [
 
 export default function TestimonialsAdmin() {
   const [items, setItems] = useState([]);
+  const [counts, setCounts] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -32,7 +33,7 @@ export default function TestimonialsAdmin() {
   const load = () => {
     const q = filter === 'all' ? '' : `?status=${filter}`;
     api('/api/admin/testimonials' + q)
-      .then((d) => { setItems(d.testimonials); setLoading(false); })
+      .then((d) => { setItems(d.testimonials || []); setCounts(d.counts || { total: 0, pending: 0, approved: 0, rejected: 0 }); setLoading(false); })
       .catch(() => setLoading(false));
   };
   useEffect(load, [filter]);
@@ -103,18 +104,23 @@ export default function TestimonialsAdmin() {
           <button
             key={f.value}
             onClick={() => setFilter(f.value)}
-            className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
+            className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
               filter === f.value ? 'bg-brand-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'
             }`}
           >
             {f.label}
-            {f.value !== 'all' && (
-              <span className="mr-1 rounded-full bg-white/10 px-1.5 text-[11px]">
-                {items.length}
-              </span>
-            )}
+            <span className={`rounded-full px-1.5 text-[11px] font-black ${
+              f.value === 'pending' && counts.pending > 0 ? 'bg-amber-400 text-ink-950' : 'bg-white/10'
+            }`}>
+              {f.value === 'all' ? counts.total : counts[f.value] ?? 0}
+            </span>
           </button>
         ))}
+        {counts.pending > 0 && (
+          <span className="mr-auto rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-bold text-amber-300">
+            فيه {counts.pending} تقييم بانتظار موافقتك
+          </span>
+        )}
       </div>
 
       <div className="card mb-8 p-6">
@@ -182,6 +188,11 @@ export default function TestimonialsAdmin() {
                         <Inbox size={11} /> {t.student_email}
                       </div>
                     )}
+                    {t.submitted_ip && (
+                      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-white/35" dir="ltr">
+                        IP: {t.submitted_ip}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
@@ -189,8 +200,12 @@ export default function TestimonialsAdmin() {
                   <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${STATUS_META[t.status]?.cls || 'bg-white/10 text-white/60'}`}>
                     {STATUS_META[t.status]?.label || t.status}
                   </span>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${t.source === 'student' ? 'bg-brand-500/15 text-brand-300' : 'bg-white/10 text-white/50'}`}>
-                    {t.source === 'student' ? 'من طالب' : 'إضافة يدوية'}
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    t.source === 'student' ? 'bg-brand-500/15 text-brand-300'
+                    : t.source === 'public' ? 'bg-neon-400/15 text-neon-300'
+                    : 'bg-white/10 text-white/50'
+                  }`}>
+                    {t.source === 'student' ? 'من حساب طالب' : t.source === 'public' ? 'من الموقع' : 'إضافة يدوية'}
                   </span>
                 </div>
               </div>
@@ -202,15 +217,15 @@ export default function TestimonialsAdmin() {
                   {t.status === 'approved' ? 'ظاهر في الرئيسية' : t.status === 'rejected' ? 'غير ظاهر (مرفوض)' : 'بإنتظار الموافقة'}
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
-                  {t.status === 'pending' && (
-                    <>
-                      <button onClick={() => setStatus(t, 'approved')} className="flex items-center gap-1 rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25">
-                        <Check size={13} /> موافقة
-                      </button>
-                      <button onClick={() => setStatus(t, 'rejected')} className="flex items-center gap-1 rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-bold text-red-300 hover:bg-red-500/25">
-                        <X size={13} /> رفض
-                      </button>
-                    </>
+                  {t.status !== 'approved' && (
+                    <button onClick={() => setStatus(t, 'approved')} className="flex items-center gap-1 rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25">
+                      <Check size={13} /> موافقة
+                    </button>
+                  )}
+                  {t.status !== 'rejected' && (
+                    <button onClick={() => setStatus(t, 'rejected')} className="flex items-center gap-1 rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-bold text-red-300 hover:bg-red-500/25">
+                      <X size={13} /> رفض
+                    </button>
                   )}
                   <button onClick={() => startEdit(t)} className="flex items-center gap-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white/75 hover:bg-white/20">
                     <Pencil size={13} /> تعديل

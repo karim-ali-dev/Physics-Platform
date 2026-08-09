@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Loader2, CalendarDays, Clock, X, Eye, EyeOff, Layers, Hash, Copy, Grid2x2, List, Zap } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Pencil, Loader2, CalendarDays, Clock, X, Eye, EyeOff, Layers, Hash, Copy, Grid2x2, List, Zap, FileDown, AlertTriangle, Scale } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
 import { api } from '../../api';
 import { GRADES, DAYS } from '../../config';
 import { PageHeader, Field, TextInput, TextArea, Select, ConfirmDelete, Empty, Alert } from '../../components/admin/ui';
@@ -90,11 +91,12 @@ function MiniBtn({ onClick, title, danger = false, children }) {
   );
 }
 
-function Chip({ s, onEdit, onDuplicate, onDelete, onToggle }) {
+function Chip({ s, onEdit, onDuplicate, onDelete, onToggle, conflict }) {
   return (
-    <div className={`group relative rounded-lg border px-2 py-1.5 text-right text-[11px] font-bold ${s.active !== 0 ? 'border-brand-500/30 bg-brand-500/10 text-brand-100' : 'border-white/10 bg-white/5 text-white/40 line-through'}`}>
+    <div className={`group relative rounded-lg border px-2 py-1.5 text-right text-[11px] font-bold ${conflict ? 'border-red-500/50 bg-red-500/10 text-red-100' : s.active !== 0 ? 'border-brand-500/30 bg-brand-500/10 text-brand-100' : 'border-white/10 bg-white/5 text-white/40 line-through'}`}>
       <button onClick={onEdit} className="block w-full" title="تعديل">
         <span className="flex items-center justify-between gap-1">
+          {conflict && <AlertTriangle size={11} className="text-red-300" />}
           <span className="text-neon-300">{fmt12Time(s.start_time)}{s.end_time ? ` - ${fmt12Time(s.end_time)}` : ''}</span>
           <span>{periodIcon(s.period)}</span>
         </span>
@@ -125,6 +127,8 @@ export default function ScheduleAdmin() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [view, setView] = useState('grid');
   const [now, setNow] = useState(() => cairoClock());
+  const [exporting, setExporting] = useState(false);
+  const exportRef = useRef(null);
 
   const load = () => {
     api('/api/admin/schedule')
@@ -213,17 +217,76 @@ export default function ScheduleAdmin() {
 
   const total = items.length;
   const activeCount = items.filter((f) => f.active !== 0).length;
-  const hiddenCount = total - activeCount;
   const gradesWith = new Set(items.map((f) => f.grade)).size;
 
   const byCell = useMemo(() => {
     const map = {};
     items.forEach((f) => { const k = `${f.grade}||${f.day}`; (map[k] = map[k] || []).push(f); });
-    Object.values(map).forEach((arr) => arr.sort((a, b) => (parseTime24(a.start_time) ?? 1440) - (parseTime24(b.start_time) ?? 1440)));
+    Object.values(map).forEach((arr) => arr.sort((a, b) =>
+      ((a.sort_order || 0) - (b.sort_order || 0)) || ((parseTime24(a.start_time) ?? 1440) - (parseTime24(b.start_time) ?? 1440))
+    ));
     return map;
   }, [items]);
 
+  /* كشف التعارضات: مواعيد بتتداخل لنفس الصف ونفس اليوم */
+  const conflicts = useMemo(() => {
+    const per = {};
+    items.forEach((f) => { const k = `${f.grade}||${f.day}`; (per[k] = per[k] || []).push(f); });
+    const out = [];
+    Object.values(per).forEach((arr) => {
+      const act = arr.filter((x) => x.active !== 0);
+      for (let i = 0; i < act.length; i++) {
+        for (let j = i + 1; j < act.length; j++) {
+          const a = act[i], b = act[j];
+          const as = parseTime24(a.start_time), bs = parseTime24(b.start_time);
+          if (as == null || bs == null) continue;
+          const ae = parseTime24(a.end_time) ?? as + 60;
+          const be = parseTime24(b.end_time) ?? bs + 60;
+          if (as < be && bs < ae) out.push({ grade: a.grade, day: a.day, a, b });
+        }
+      }
+    });
+    return out;
+  }, [items]);
+
+  const conflictIds = useMemo(() => new Set(conflicts.flatMap((c) => [c.a.id, c.b.id])), [conflicts]);
+
+  const weekly = useMemo(() => {
+    const act = items.filter((f) => f.active !== 0);
+    const hours = act.reduce((sum, f) => {
+      const s = parseTime24(f.start_time);
+      if (s == null) return sum;
+      const e = parseTime24(f.end_time);
+      return sum + (e == null ? 60 : Math.max(0, e - s)) / 60;
+    }, 0);
+    return {
+      hours: Math.round(hours * 10) / 10,
+      days: new Set(act.map((f) => f.day)).size,
+      grades: new Set(act.map((f) => f.grade)).size
+    };
+  }, [items]);
+
   const nxt = useMemo(() => nextSession(items, now, null), [items, now]);
+
+  const exportPDF = () => {
+    if (!exportRef.current || exporting) return;
+    setExporting(true);
+    setTimeout(() => {
+      const gradePart = gradeFilter === 'الكل' ? 'كل-الصفوف' : gradeFilter;
+      html2pdf()
+        .set({
+          margin: 8,
+          filename: `جدول-مواعيد-الدروس-${gradePart}-${new Date().toISOString().slice(0, 10)}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true }
+        })
+        .from(exportRef.current)
+        .save()
+        .then(() => setExporting(false))
+        .catch(() => setExporting(false));
+    }, 60);
+  };
 
   return (
     <div>
@@ -231,9 +294,15 @@ export default function ScheduleAdmin() {
         title="مواعيد الدروس (أوفلاين)"
         subtitle="جدول الحصص الحضورية لكل المراحل — بيتعرض لحظياً في صفحة «مواعيد الدروس» والمساعد الذكي"
         action={
-          <button onClick={() => openAdd()} className="btn-primary !py-2.5 text-sm">
-            <Plus size={16} /> إضافة موعد جديد
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={exportPDF} disabled={exporting || items.length === 0} className="btn-ghost !py-2.5 text-sm disabled:opacity-50">
+              {exporting ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+              {exporting ? 'جاري إنشاء PDF...' : 'تصدير الجدول PDF'}
+            </button>
+            <button onClick={() => openAdd()} className="btn-primary !py-2.5 text-sm">
+              <Plus size={16} /> إضافة موعد جديد
+            </button>
+          </div>
         }
       />
 
@@ -269,8 +338,27 @@ export default function ScheduleAdmin() {
         <Stat icon={CalendarDays} label="إجمالي المواعيد" value={total} accent="bg-brand-500/15 text-brand-300" />
         <Stat icon={Layers} label="صفوف عندها مواعيد" value={gradesWith} accent="bg-violet-500/15 text-violet-300" />
         <Stat icon={Eye} label="ظاهرة على الموقع" value={activeCount} accent="bg-emerald-500/15 text-emerald-300" />
-        <Stat icon={EyeOff} label="مخفية" value={hiddenCount} accent="bg-amber-400/15 text-amber-300" />
+        <Stat icon={AlertTriangle} label="تعارضات مواعيد" value={conflicts.length} accent={conflicts.length ? 'bg-red-500/15 text-red-300' : 'bg-white/10 text-white/50'} />
       </div>
+
+      {/* ملخص الأسبوع */}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-900/60 px-5 py-3.5">
+        <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-white/55">
+          <span className="flex items-center gap-1.5"><Scale size={14} className="text-brand-300" /> أسبوع شغال: <b className="text-white/85">{weekly.days} يوم</b></span>
+          <span className="text-white/25">•</span>
+          <span>إجمالي <b className="text-white/85">{weekly.hours} ساعة</b> / أسبوع</span>
+          <span className="text-white/25">•</span>
+          <span><b className="text-white/85">{weekly.grades} صف</b> نشط</span>
+        </div>
+        <span className="text-[11px] text-white/40">التصدير بيتعمل بالفلاتر اللي فاتحها دلوقتي</span>
+      </div>
+
+      {conflicts.length > 0 && (
+        <Alert type="error">
+          <div className="font-black">فيه تعارض في مواعيد: {conflicts.slice(0, 3).map((c) => `${c.grade} يوم ${c.day} (${fmt12Time(c.a.start_time)} و ${fmt12Time(c.b.start_time)})`).join(' • ')}{conflicts.length > 3 ? ' ...' : ''}</div>
+          <div className="mt-1 text-xs text-red-300/70">التعارضات متظللة بالأحمر في الشبكة — عدل المواعيد المتداخلة</div>
+        </Alert>
+      )}
 
       {/* Filters */}
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-900/60 p-4">
@@ -363,6 +451,7 @@ export default function ScheduleAdmin() {
                               <Chip
                                 key={s.id}
                                 s={s}
+                                conflict={conflictIds.has(s.id)}
                                 onEdit={() => openEdit(s)}
                                 onDuplicate={() => duplicate(s)}
                                 onDelete={() => del(s.id)}
@@ -513,6 +602,72 @@ export default function ScheduleAdmin() {
           </div>
         </div>
       )}
+
+      {/* ورقة التصدير PDF — خارج الشاشة (شريط التمرير الأفقي للجدول الكامل) */}
+      <div aria-hidden="true" className="pointer-events-none fixed top-0 z-[-1] w-max" style={{ left: '-10000px' }} ref={exportRef}>
+        <div style={{ width: 1060, background: '#ffffff', color: '#1f2937', fontFamily: "'Cairo', sans-serif", direction: 'rtl', padding: 28 }}>
+          <div style={{ textAlign: 'center', borderBottom: '3px solid #0d9488', paddingBottom: 14 }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#0d9488' }}>جدول مواعيد الدروس</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>منصة الفيزياء — مستر أحمد علي الديب</div>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+              {gradeFilter === 'الكل' ? 'كل الصفوف' : gradeFilter} • تم التصدير: {new Date().toLocaleDateString('ar-EG')}
+            </div>
+          </div>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 16, fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ border: '1px solid #d1d5db', background: '#0d9488', color: '#ffffff', padding: '8px 6px', textAlign: 'right' }}>الصف</th>
+                {DAYS.map((d) => (
+                  <th key={d} style={{ border: '1px solid #d1d5db', background: '#0d9488', color: '#ffffff', padding: '8px 4px', textAlign: 'center' }}>{d}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {GRADES.filter((g) => gradeFilter === 'الكل' || g === gradeFilter).filter((g) => items.some((f) => f.grade === g)).map((g) => (
+                <tr key={g}>
+                  <td style={{ border: '1px solid #d1d5db', padding: 8, fontWeight: 800, background: '#f9fafb', color: '#0d9488' }}>{g}</td>
+                  {DAYS.map((d) => {
+                    const cells = (byCell[`${g}||${d}`] || []);
+                    return (
+                      <td key={d} style={{ border: '1px solid #d1d5db', padding: 6, verticalAlign: 'top', minHeight: 40 }}>
+                        {cells.length === 0 ? (
+                          <span style={{ color: '#e5e7eb' }}>—</span>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            {cells.map((s) => (
+                              <div
+                                key={s.id}
+                                style={{
+                                  borderRadius: 6,
+                                  border: s.active !== 0 ? '1px solid #0d9488' : '1px dashed #d1d5db',
+                                  background: s.active !== 0 ? '#ecfdf5' : '#f9fafb',
+                                  color: s.active !== 0 ? '#065f46' : '#9ca3af',
+                                  padding: '4px 6px',
+                                  fontSize: 11,
+                                  fontWeight: 700
+                                }}
+                              >
+                                <div>{fmt12Time(s.start_time)}{s.end_time ? ` - ${fmt12Time(s.end_time)}` : ''} {periodIcon(s.period)}</div>
+                                {s.tag && <div style={{ color: '#ea580c', fontSize: 10, fontWeight: 600 }}>🔖 {s.tag}</div>}
+                                {s.active === 0 && <div style={{ fontSize: 9, color: '#9ca3af' }}>(مخفي عن الموقع)</div>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div style={{ marginTop: 18, fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
+            جدول الحصص الحضورية (أوفلاين) — المواعيد المخفية مش بتظهر للطلاب • منصة الفيزياء
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS testimonials (
   image_url TEXT DEFAULT '',
   status TEXT DEFAULT 'approved',
   source TEXT DEFAULT 'admin',
+  submitted_ip TEXT DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -514,6 +515,7 @@ const PG_DDL = [
     status TEXT NOT NULL DEFAULT 'approved',
     source TEXT NOT NULL DEFAULT 'admin',
     student_id INTEGER NOT NULL DEFAULT 0,
+    submitted_ip TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS faqs (
@@ -725,6 +727,7 @@ const PG_MIGRATIONS = [
   "ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'",
   "ALTER TABLE customers ADD COLUMN IF NOT EXISTS reset_code_hash TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE testimonials ADD COLUMN IF NOT EXISTS student_id INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE testimonials ADD COLUMN IF NOT EXISTS submitted_ip TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE payments ADD COLUMN IF NOT EXISTS payer_phone TEXT NOT NULL DEFAULT ''",
   `CREATE TABLE IF NOT EXISTS tasks (
     id SERIAL PRIMARY KEY,
@@ -879,6 +882,7 @@ await ensureColumn('customers', 'status', "TEXT DEFAULT 'active'");
   await ensureColumn('testimonials', 'status', "TEXT DEFAULT 'approved'");
   await ensureColumn('testimonials', 'source', "TEXT DEFAULT 'admin'");
   await ensureColumn('testimonials', 'student_id', 'INTEGER DEFAULT 0');
+  await ensureColumn('testimonials', 'submitted_ip', "TEXT DEFAULT ''");
   await ensureColumn('courses', 'price_amount', 'REAL DEFAULT 0');
   await ensureColumn('payments', 'payer_phone', "TEXT DEFAULT ''");
   await ensureColumn('help_requests', 'client_id', "TEXT DEFAULT ''");

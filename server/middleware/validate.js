@@ -73,6 +73,15 @@ const testimonialSubmitSchema = z.object({
   image_url: z.string().trim().max(500).default('')
 });
 
+const testimonialPublicSchema = z.object({
+  client_name: z.string().trim().min(1, 'اكتب اسمك').max(200),
+  client_role: z.string().trim().max(200).default(''),
+  content: z.string().trim().min(1, 'اكتب رأيك').max(5000),
+  rating: z.number().int().min(1).max(5).default(5),
+  image_url: z.string().trim().max(500).default(''),
+  website: z.string().trim().max(100).default('')
+});
+
 const testimonialStatusSchema = z.object({
   status: z.enum(['pending', 'approved', 'rejected'])
 });
@@ -258,6 +267,7 @@ module.exports = {
   questionSchema,
   testimonialSchema,
   testimonialSubmitSchema,
+  testimonialPublicSchema,
   testimonialStatusSchema,
   bookingSchema,
   faqSchema,

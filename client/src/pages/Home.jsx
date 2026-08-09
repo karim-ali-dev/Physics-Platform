@@ -8,6 +8,7 @@ import Atom3D from '../components/Atom3D';
 import PhysicsIcon from '../components/PhysicsIcon';
 import SectionHeading from '../components/SectionHeading';
 import Testimonials3D from '../components/Testimonials3D';
+import TestimonialForm from '../components/TestimonialForm';
 
 export default function Home() {
   const { settings } = useApp();
@@ -238,10 +239,14 @@ export default function Home() {
           ) : (
             <p className="py-16 text-center text-white/45">مفيش تقييمات معتمدة لحد دلوقتي.</p>
           )}
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-4 text-sm text-white/50">
-            <CheckCircle2 size={16} className="text-brand-400" /> كل الكورسات مجانية
-            <CheckCircle2 size={16} className="text-brand-400" /> تقدمك محفوظ تلقائياً
-            <CheckCircle2 size={16} className="text-brand-400" /> اختبارات على نمط الامتحان
+          <div className="mt-12 grid items-start gap-8 lg:grid-cols-[1fr_400px]">
+            <div className="mt-10 flex flex-wrap items-center justify-center gap-4 text-sm text-white/50 lg:mt-0 lg:items-start lg:justify-start lg:flex-col">
+              <CheckCircle2 size={16} className="text-brand-400" /> كل الكورسات مجانية
+              <CheckCircle2 size={16} className="text-brand-400" /> تقدمك محفوظ تلقائياً
+              <CheckCircle2 size={16} className="text-brand-400" /> اختبارات على نمط الامتحان
+              <CheckCircle2 size={16} className="text-brand-400" /> تقيمك بيوصل للمستر مباشرة
+            </div>
+            <TestimonialForm />
           </div>
         </div>
       </section>

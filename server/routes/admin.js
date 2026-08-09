@@ -738,7 +738,16 @@ router.get('/testimonials', ah(async (req, res) => {
     params.push(status);
   }
   q += ' ORDER BY t.id DESC';
-  res.json({ testimonials: await db.all(q, params) });
+  const [rows, countsRow] = await Promise.all([
+    db.all(q, params),
+    db.get(`SELECT
+      COUNT(*) AS total,
+      COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+      COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) AS approved,
+      COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) AS rejected
+      FROM testimonials`)
+  ]);
+  res.json({ testimonials: rows, counts: countsRow || { total: 0, pending: 0, approved: 0, rejected: 0 } });
 }));
 
 router.post('/testimonials', validate(testimonialSchema), ah(async (req, res) => {

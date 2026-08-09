@@ -2,7 +2,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { db } = require('../db');
 const { audit } = require('../security');
-const { validate, contactSchema, testimonialSubmitSchema, bookingSchema } = require('../middleware/validate');
+const { validate, contactSchema, testimonialSubmitSchema, testimonialPublicSchema, bookingSchema } = require('../middleware/validate');
 const { upload, validateFileSignature } = require('../middleware/upload');
 const { saveFile } = require('../storage');
 const { getCached, setCached } = require('../cache');
@@ -113,6 +113,14 @@ router.post('/testimonials', testimonialLimiter, requireCustomer, validate(testi
   await db.run("INSERT INTO testimonials (client_name, client_role, content, rating, active, image_url, status, source, student_id, created_at) VALUES (?, ?, ?, ?, 0, ?, 'pending', 'student', ?, ?)",
     [name, client_role || '', content, rating, image_url || '', req.customer.id, new Date().toISOString()]);
   await audit(req.customer.id, 'testimonial_submit', `${name} — ${rating} نجوم`, req.ip);
+  res.status(201).json({ ok: true, message: 'وصل تقييمك، هيظهر على الموقع بعد موافقة مستر أحمد' });
+}));
+
+router.post('/testimonials/public', testimonialLimiter, validate(testimonialPublicSchema), ah(async (req, res) => {
+  const { client_name, client_role, content, rating, image_url, website } = req.body;
+  if (website) return res.status(200).json({ ok: true, message: 'وصل تقييمك، هيظهر بعد موافقة مستر أحمد' });
+  await db.run("INSERT INTO testimonials (client_name, client_role, content, rating, active, image_url, status, source, submitted_ip, created_at) VALUES (?, ?, ?, ?, 0, ?, 'pending', 'public', ?, ?)",
+    [client_name.trim(), client_role || '', content, rating, image_url || '', req.ip || '', new Date().toISOString()]);
   res.status(201).json({ ok: true, message: 'وصل تقييمك، هيظهر على الموقع بعد موافقة مستر أحمد' });
 }));
 

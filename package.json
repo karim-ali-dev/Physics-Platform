@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "منصة الفيزياء - مستر أحمد علي الديب",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "postinstall": "npm run install:all",
     "install:all": "npm --prefix server install && npm --prefix client install",

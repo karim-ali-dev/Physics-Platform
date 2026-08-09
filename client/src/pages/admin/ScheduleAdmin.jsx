@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Pencil, Loader2, CalendarDays, Clock, X, Eye, EyeOff, Layers, Hash, Copy, Grid2x2, List, Zap, FileDown, AlertTriangle, Scale } from 'lucide-react';
-import html2pdf from 'html2pdf.js';
+import { Plus, Pencil, Loader2, CalendarDays, Clock, X, Eye, EyeOff, Copy, Grid2x2, List, Zap, FileDown, AlertTriangle, ExternalLink, CalendarClock } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { api } from '../../api';
 import { GRADES, DAYS } from '../../config';
 import { PageHeader, Field, TextInput, TextArea, Select, ConfirmDelete, Empty, Alert } from '../../components/admin/ui';
-import Spinner from '../../components/Spinner';
-import { cairoClock, fmtClock12, fmt12m, fmt12Time, fmt24m, parseTime24, nextSession, humanMinutes, dayLabel, DAY_ORDER } from '../../utils/schedule';
+import Skeleton from '../../components/Skeleton';
+import { fmtClock12, fmt12m, fmt12Time, fmt24m, parseTime24, cairoClock, nextSession, humanMinutes, dayLabel, DAY_ORDER } from '../../utils/schedule';
 import { TimePicker12 } from '../../components/admin/ui';
 
 const blank = { grade: GRADES[0], day: DAYS[0], start_time: '', end_time: '', note: '', period: 'الليل', tag: '', tag_active: true, sort_order: 0, active: true };
@@ -30,20 +31,26 @@ const dayStyle = (day) => {
   return styles[day] || 'bg-white/10 text-white/70';
 };
 
+const gradePalette = [
+  ['bg-teal-500/15 text-teal-300', 'bg-teal-400'],
+  ['bg-amber-400/15 text-amber-200', 'bg-amber-300'],
+  ['bg-emerald-500/15 text-emerald-300', 'bg-emerald-400'],
+  ['bg-sky-500/15 text-sky-300', 'bg-sky-400'],
+  ['bg-rose-400/15 text-rose-300', 'bg-rose-400'],
+  ['bg-violet-500/15 text-violet-300', 'bg-violet-400'],
+  ['bg-cyan-400/15 text-cyan-300', 'bg-cyan-400'],
+  ['bg-lime-500/15 text-lime-300', 'bg-lime-400'],
+  ['bg-orange-400/15 text-orange-300', 'bg-orange-400']
+];
+
 const gradeStyle = (grade) => {
-  const palette = [
-    'bg-teal-500/15 text-teal-300',
-    'bg-amber-400/15 text-amber-200',
-    'bg-emerald-500/15 text-emerald-300',
-    'bg-sky-500/15 text-sky-300',
-    'bg-rose-400/15 text-rose-300',
-    'bg-violet-500/15 text-violet-300',
-    'bg-cyan-400/15 text-cyan-300',
-    'bg-lime-500/15 text-lime-300',
-    'bg-orange-400/15 text-orange-300'
-  ];
   const idx = GRADES.indexOf(grade);
-  return palette[idx >= 0 ? idx % palette.length : 5];
+  return gradePalette[idx >= 0 ? idx % gradePalette.length : 5][0];
+};
+
+const gradeDot = (grade) => {
+  const idx = GRADES.indexOf(grade);
+  return gradePalette[idx >= 0 ? idx % gradePalette.length : 5][1];
 };
 
 const toInputTime = (str) => {
@@ -66,13 +73,13 @@ function MiniSwitch({ checked, onChange }) {
 
 function Stat({ icon: Icon, label, value, accent }) {
   return (
-    <div className="card flex items-center gap-3 p-4">
-      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${accent}`}>
-        <Icon size={20} />
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-ink-900/60 p-4">
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${accent}`}>
+        <Icon size={18} />
       </span>
       <div className="min-w-0">
-        <div className="text-xl font-black leading-none">{value}</div>
-        <div className="mt-1 truncate text-xs text-white/50">{label}</div>
+        <div className="text-lg font-black leading-none">{value}</div>
+        <div className="mt-1 truncate text-[11px] font-semibold text-white/50">{label}</div>
       </div>
     </div>
   );
@@ -91,21 +98,65 @@ function MiniBtn({ onClick, title, danger = false, children }) {
   );
 }
 
-function Chip({ s, onEdit, onDuplicate, onDelete, onToggle, conflict }) {
+function SegBtn({ active, onClick, children, title }) {
   return (
-    <div className={`group relative rounded-lg border px-2 py-1.5 text-right text-[11px] font-bold ${conflict ? 'border-red-500/50 bg-red-500/10 text-red-100' : s.active !== 0 ? 'border-brand-500/30 bg-brand-500/10 text-brand-100' : 'border-white/10 bg-white/5 text-white/40 line-through'}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${active ? 'bg-brand-600 text-pure shadow-glow' : 'text-white/50 hover:text-white'}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FilterPill({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${active ? 'bg-brand-600 text-pure shadow-glow' : 'border border-white/15 text-white/60 hover:border-brand-400 hover:text-brand-300'}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Chip({ s, onEdit, onDuplicate, onDelete, onToggle, conflict }) {
+  const hidden = s.active === 0;
+  return (
+    <div className={`group relative rounded-lg border px-1.5 py-1.5 text-right transition-colors ${
+      conflict
+        ? 'border-red-500/60 bg-red-500/10'
+        : hidden
+          ? 'border-white/10 bg-white/[0.03]'
+          : 'border-brand-500/25 bg-ink-900/80 hover:border-brand-400/50'
+    }`}>
       <button onClick={onEdit} className="block w-full" title="تعديل">
-        <span className="flex items-center justify-between gap-1">
-          {conflict && <AlertTriangle size={11} className="text-red-300" />}
-          <span className="text-neon-300">{fmt12Time(s.start_time)}{s.end_time ? ` - ${fmt12Time(s.end_time)}` : ''}</span>
-          <span>{periodIcon(s.period)}</span>
-        </span>
-        {s.tag && <span className="mt-0.5 block truncate text-[10px] text-orange-300/80">🔖 {s.tag}</span>}
-        {s.note && <span className="mt-0.5 block truncate text-[10px] text-white/40">{s.note}</span>}
+        <div className="flex items-center justify-between gap-1">
+          <span className={`flex items-center gap-1 truncate text-[11px] font-black ${hidden ? 'text-white/35 line-through' : 'text-neon-300'}`}>
+            {conflict && <AlertTriangle size={11} className="shrink-0 text-red-300" />}
+            {fmt12Time(s.start_time)}{s.end_time ? ` - ${fmt12Time(s.end_time)}` : ''}
+          </span>
+          <span className="shrink-0 text-[10px] leading-none">{periodIcon(s.period)}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1">
+          {s.period && (
+            <span className={`rounded px-1 py-px text-[9px] font-black ${periodStyle(s.period)}`}>{s.period}</span>
+          )}
+          {s.tag && (
+            <span className="rounded bg-orange-400/10 px-1 py-px text-[9px] font-bold text-orange-300/90">
+              🔖 {s.tag}
+            </span>
+          )}
+        </div>
+        {s.note && <p className="mt-0.5 truncate text-[9px] text-white/40">{s.note}</p>}
+        {hidden && <p className="mt-0.5 text-[9px] font-bold text-white/30">مخفي عن الموقع</p>}
       </button>
       <div className="absolute -top-2 left-1 hidden items-center gap-1 group-hover:flex">
-        <MiniBtn onClick={onToggle} title={s.active !== 0 ? 'إخفاء عن الموقع' : 'إظهار على الموقع'}>
-          {s.active !== 0 ? <EyeOff size={11} /> : <Eye size={11} />}
+        <MiniBtn onClick={onToggle} title={hidden ? 'إظهار على الموقع' : 'إخفاء عن الموقع'}>
+          {hidden ? <Eye size={11} /> : <EyeOff size={11} />}
         </MiniBtn>
         <MiniBtn onClick={onDuplicate} title="تكرار الموعد"><Copy size={11} /></MiniBtn>
         <ConfirmDelete small onConfirm={onDelete} />
@@ -144,7 +195,7 @@ export default function ScheduleAdmin() {
     return () => { clearInterval(t1); clearInterval(t2); };
   }, []);
 
-  const today = DAYS[DAY_ORDER.indexOf(DAY_ORDER[cairoClock().weekdayIndex === 0 ? 6 : cairoClock().weekdayIndex - 1])] ?? DAY_ORDER[cairoClock().weekdayIndex === 0 ? 6 : cairoClock().weekdayIndex - 1];
+  const today = useMemo(() => DAY_ORDER[now.weekdayIndex === 0 ? 6 : now.weekdayIndex - 1], [now.weekdayIndex]);
 
   const openAdd = (overrides = {}) => {
     setEditing(null);
@@ -217,7 +268,7 @@ export default function ScheduleAdmin() {
 
   const total = items.length;
   const activeCount = items.filter((f) => f.active !== 0).length;
-  const gradesWith = new Set(items.map((f) => f.grade)).size;
+  const gradesWith = new Set(items.filter((f) => f.active !== 0).map((f) => f.grade)).size;
 
   const byCell = useMemo(() => {
     const map = {};
@@ -261,46 +312,72 @@ export default function ScheduleAdmin() {
     }, 0);
     return {
       hours: Math.round(hours * 10) / 10,
-      days: new Set(act.map((f) => f.day)).size,
-      grades: new Set(act.map((f) => f.grade)).size
+      days: new Set(act.map((f) => f.day)).size
     };
   }, [items]);
 
   const nxt = useMemo(() => nextSession(items, now, null), [items, now]);
 
-  const exportPDF = () => {
-    if (!exportRef.current || exporting) return;
+  const exportPDF = async () => {
+    if (exporting || items.length === 0) return;
     setExporting(true);
-    setTimeout(() => {
+    setError('');
+    try {
+      const el = exportRef.current;
+      if (!el) throw new Error('مفيش جدول للتصدير');
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: 1100
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageW = 297;
+      const pageH = 210;
+      const margin = 6;
+      const availW = pageW - margin * 2;
+      const availH = pageH - margin * 2;
+      const ratio = canvas.width / canvas.height;
+      let w = availW;
+      let h = availW / ratio;
+      if (h > availH) { h = availH; w = availH * ratio; }
+      pdf.addImage(imgData, 'JPEG', (pageW - w) / 2, (pageH - h) / 2, w, h);
       const gradePart = gradeFilter === 'الكل' ? 'كل-الصفوف' : gradeFilter;
-      html2pdf()
-        .set({
-          margin: 8,
-          filename: `جدول-مواعيد-الدروس-${gradePart}-${new Date().toISOString().slice(0, 10)}.pdf`,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true }
-        })
-        .from(exportRef.current)
-        .save()
-        .then(() => setExporting(false))
-        .catch(() => setExporting(false));
-    }, 60);
+      pdf.save(`جدول-مواعيد-الدروس-${gradePart}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      setMsg('تم تصدير الجدول PDF بنجاح');
+      setTimeout(() => setMsg(null), 3000);
+    } catch (err) {
+      setError(err?.message || 'حصل خطأ أثناء تصدير الـ PDF — جرب تاني');
+      setTimeout(() => setError(''), 4000);
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
     <div>
       <PageHeader
         title="مواعيد الدروس (أوفلاين)"
-        subtitle="جدول الحصص الحضورية لكل المراحل — بيتعرض لحظياً في صفحة «مواعيد الدروس» والمساعد الذكي"
+        subtitle={`${weekly.days} يوم شغال • ${weekly.hours} ساعة أسبوعياً • بيتعرض لحظياً في صفحة المواعيد`}
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/schedule"
+              target="_blank"
+              rel="noreferrer"
+              className="btn-ghost !py-2.5 text-sm"
+              title="معاينة الصفحة العامة"
+            >
+              <ExternalLink size={16} /> معاينة الموقع
+            </a>
             <button onClick={exportPDF} disabled={exporting || items.length === 0} className="btn-ghost !py-2.5 text-sm disabled:opacity-50">
               {exporting ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
-              {exporting ? 'جاري إنشاء PDF...' : 'تصدير الجدول PDF'}
+              {exporting ? 'جاري التصدير...' : 'تصدير الجدول PDF'}
             </button>
             <button onClick={() => openAdd()} className="btn-primary !py-2.5 text-sm">
-              <Plus size={16} /> إضافة موعد جديد
+              <Plus size={16} /> إضافة موعد
             </button>
           </div>
         }
@@ -311,46 +388,34 @@ export default function ScheduleAdmin() {
 
       {/* الحصة اللي جاية + الساعة الحية */}
       {nxt && (
-        <div className={`mb-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border p-4 ${nxt.status === 'ongoing' ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-brand-500/40 bg-gradient-to-l from-brand-600/20 to-neon-400/10'}`}>
+        <div className={`mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 ${nxt.status === 'ongoing' ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-brand-500/30 bg-gradient-to-l from-brand-600/15 to-neon-400/10'}`}>
           <div className="flex items-center gap-3">
             <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${nxt.status === 'ongoing' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-brand-500/20 text-brand-300'}`}>
-              <Zap size={18} className="animate-pulse" />
+              <Zap size={18} className={nxt.status === 'ongoing' ? 'animate-pulse' : ''} />
             </span>
             <div>
-              <div className="text-xs font-bold text-white/50">{nxt.status === 'ongoing' ? 'الحصة الجارية دلوقتي' : 'الحصة اللي جاية'}</div>
+              <div className="text-[11px] font-black text-white/45">{nxt.status === 'ongoing' ? 'الحصة الجارية دلوقتي' : 'الحصة اللي جاية'}</div>
               <div className="text-sm font-black">{nxt.item.grade} • يوم {nxt.item.day} • <span className="text-neon-300">{fmt12m(nxt.startMin)}</span></div>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <span className="hidden rounded-full bg-white/5 px-3 py-1.5 text-xs font-bold text-white/55 sm:block">
+            <span className="hidden rounded-full bg-white/5 px-3 py-1.5 text-[11px] font-bold text-white/55 sm:block">
               {nxt.status === 'ongoing' ? `بتخلص ${nxt.item.end_time ? fmt12Time(nxt.item.end_time) : 'بعد شوية'}` : `${dayLabel(nxt.dayOffset)} — بعد ${humanMinutes(nxt.minutesUntil)}`}
             </span>
             <div className="text-left">
-              <div className="text-[10px] font-bold text-white/45">القاهرة (12 ساعة)</div>
-              <div className="font-mono text-xl font-black text-neon-300" dir="ltr">{fmtClock12(now)}</div>
+              <div className="text-[9px] font-bold text-white/40">القاهرة</div>
+              <div className="font-mono text-lg font-black text-neon-300" dir="ltr">{fmtClock12(now)}</div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat icon={CalendarDays} label="إجمالي المواعيد" value={total} accent="bg-brand-500/15 text-brand-300" />
+      {/* إحصائيات */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat icon={CalendarClock} label="إجمالي المواعيد" value={total} accent="bg-brand-500/15 text-brand-300" />
         <Stat icon={Layers} label="صفوف عندها مواعيد" value={gradesWith} accent="bg-violet-500/15 text-violet-300" />
         <Stat icon={Eye} label="ظاهرة على الموقع" value={activeCount} accent="bg-emerald-500/15 text-emerald-300" />
         <Stat icon={AlertTriangle} label="تعارضات مواعيد" value={conflicts.length} accent={conflicts.length ? 'bg-red-500/15 text-red-300' : 'bg-white/10 text-white/50'} />
-      </div>
-
-      {/* ملخص الأسبوع */}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-900/60 px-5 py-3.5">
-        <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-white/55">
-          <span className="flex items-center gap-1.5"><Scale size={14} className="text-brand-300" /> أسبوع شغال: <b className="text-white/85">{weekly.days} يوم</b></span>
-          <span className="text-white/25">•</span>
-          <span>إجمالي <b className="text-white/85">{weekly.hours} ساعة</b> / أسبوع</span>
-          <span className="text-white/25">•</span>
-          <span><b className="text-white/85">{weekly.grades} صف</b> نشط</span>
-        </div>
-        <span className="text-[11px] text-white/40">التصدير بيتعمل بالفلاتر اللي فاتحها دلوقتي</span>
       </div>
 
       {conflicts.length > 0 && (
@@ -360,119 +425,119 @@ export default function ScheduleAdmin() {
         </Alert>
       )}
 
-      {/* Filters */}
-      <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-900/60 p-4">
+      {/* شريط الأدوات */}
+      <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-white/10 bg-ink-900/60 p-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold text-white/45">الصف:</span>
-          <button
-            onClick={() => setGradeFilter('الكل')}
-            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${gradeFilter === 'الكل' ? 'bg-brand-600 text-pure shadow-glow' : 'border border-white/15 text-white/60 hover:border-brand-400 hover:text-brand-300'}`}
-          >
-            الكل ({total})
-          </button>
+          <span className="text-[11px] font-black text-white/40">الصف:</span>
+          <FilterPill active={gradeFilter === 'الكل'} onClick={() => setGradeFilter('الكل')}>الكل ({total})</FilterPill>
           {GRADES.map((g) => (
-            <button
-              key={g}
-              onClick={() => setGradeFilter(g)}
-              className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${gradeFilter === g ? 'bg-brand-600 text-pure shadow-glow' : 'border border-white/15 text-white/60 hover:border-brand-400 hover:text-brand-300'}`}
-            >
+            <FilterPill key={g} active={gradeFilter === g} onClick={() => setGradeFilter(g)}>
               {g} ({items.filter((f) => f.grade === g).length})
-            </button>
+            </FilterPill>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-white/45">الحالة:</span>
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-ink-950 p-1">
             {[
               { value: 'all', label: 'الكل' },
               { value: 'active', label: 'ظاهر' },
               { value: 'hidden', label: 'مخفي' }
             ].map((o) => (
-              <button
-                key={o.value}
-                onClick={() => setStatusFilter(o.value)}
-                className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${statusFilter === o.value ? 'bg-brand-600 text-pure shadow-glow' : 'border border-white/15 text-white/60 hover:border-brand-400 hover:text-brand-300'}`}
-              >
+              <SegBtn key={o.value} active={statusFilter === o.value} onClick={() => setStatusFilter(o.value)} title={`الحالة: ${o.label}`}>
                 {o.label}
-              </button>
+              </SegBtn>
             ))}
           </div>
           <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-ink-950 p-1">
-            <button
-              onClick={() => setView('grid')}
-              title="شبكة الأسبوع"
-              className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${view === 'grid' ? 'bg-brand-600 text-pure' : 'text-white/50 hover:text-white'}`}
-            >
+            <SegBtn active={view === 'grid'} onClick={() => setView('grid')} title="شبكة الأسبوع">
               <Grid2x2 size={14} /> الشبكة
-            </button>
-            <button
-              onClick={() => setView('list')}
-              title="عرض القائمة"
-              className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${view === 'list' ? 'bg-brand-600 text-pure' : 'text-white/50 hover:text-white'}`}
-            >
+            </SegBtn>
+            <SegBtn active={view === 'list'} onClick={() => setView('list')} title="عرض القائمة">
               <List size={14} /> القائمة
-            </button>
+            </SegBtn>
           </div>
         </div>
       </div>
 
-      {/* ===== الشبكة الأسبوعية (بضغطة زرار) ===== */}
+      {/* ===== الشبكة الأسبوعية ===== */}
       {view === 'grid' && (
         loading ? (
-          <div className="mt-8"><Spinner /></div>
+          <div className="mt-5 space-y-2">
+            <Skeleton className="h-12 w-full rounded-2xl" />
+            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)}
+          </div>
         ) : items.length === 0 ? (
-          <div className="mt-8"><Empty text="مفيش مواعيد لحد دلوقتي — اضغط «إضافة موعد جديد» أو استخدم زر + في الخلايا." /></div>
+          <div className="card mt-5 p-8 text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/15 text-3xl">🗓️</div>
+            <p className="font-black">مفيش مواعيد لحد دلوقتي</p>
+            <p className="mt-1 text-sm text-white/50">اضغط «إضافة موعد» فوق أو استخدم زر + داخل أي خلية في الجدول.</p>
+          </div>
         ) : (
-          <div className="mt-8 overflow-x-auto rounded-2xl border border-white/10 bg-ink-900/40">
-            <table className="w-full min-w-[980px] border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className="sticky right-0 z-10 border-b border-l border-white/10 bg-ink-900 p-3 text-right text-xs font-black text-white/55">الصف</th>
-                  {DAYS.map((d) => (
-                    <th key={d} className={`border-b border-white/10 p-2.5 text-center text-xs font-black ${d === today ? 'text-neon-300' : 'text-white/55'}`}>
-                      {d}
-                      {d === today && <span className="mr-1.5 rounded-full bg-neon-400/15 px-1.5 py-0.5 text-[9px] font-black text-neon-300">اليوم</span>}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {GRADES.map((g) => (
-                  <tr key={g}>
-                    <td className={`sticky right-0 z-10 border-b border-l border-white/10 bg-ink-900 p-2.5 text-xs font-extrabold ${gradeStyle(g)}`}>
-                      {g} <span className="text-white/35">({items.filter((f) => f.grade === g).length})</span>
-                    </td>
+          <div className="mt-5 overflow-hidden rounded-2xl border border-white/10 bg-ink-900/40">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th className="sticky right-0 z-10 border-b border-l border-white/10 bg-ink-900 p-3 text-right text-xs font-black text-white/60">الصف</th>
                     {DAYS.map((d) => {
-                      const cells = byCell[`${g}||${d}`] || [];
+                      const isToday = d === today;
                       return (
-                        <td key={d} className="border-b border-white/10 p-1.5 align-top">
-                          <div className="flex min-h-[68px] flex-col gap-1">
-                            {cells.map((s) => (
-                              <Chip
-                                key={s.id}
-                                s={s}
-                                conflict={conflictIds.has(s.id)}
-                                onEdit={() => openEdit(s)}
-                                onDuplicate={() => duplicate(s)}
-                                onDelete={() => del(s.id)}
-                                onToggle={() => toggleActive(s)}
-                              />
-                            ))}
-                            <button
-                              onClick={() => openAdd({ grade: g, day: d })}
-                              title={`إضافة موعد لـ ${g} يوم ${d}`}
-                              className="flex h-6 w-full items-center justify-center rounded-lg border border-dashed border-white/15 text-white/30 transition-colors hover:border-brand-400/60 hover:bg-brand-500/10 hover:text-brand-300"
-                            >
-                              <Plus size={13} />
-                            </button>
-                          </div>
-                        </td>
+                        <th key={d} className={`border-b border-white/10 p-2.5 text-center ${isToday ? 'bg-brand-500/10' : ''}`}>
+                          <span className={`text-xs font-black ${isToday ? 'text-neon-300' : 'text-white/60'}`}>{d}</span>
+                          {isToday && <span className="mr-1.5 rounded-full bg-neon-400/20 px-2 py-0.5 text-[9px] font-black text-neon-300">اليوم</span>}
+                        </th>
                       );
                     })}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {GRADES.map((g) => {
+                    const count = items.filter((f) => f.grade === g && f.active !== 0).length;
+                    return (
+                      <tr key={g} className="group/row hover:bg-white/[0.02]">
+                        <td className="sticky right-0 z-10 border-b border-l border-white/10 bg-ink-900 p-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${gradeDot(g)}`} />
+                            <span className="text-xs font-extrabold">{g}</span>
+                            <span className={`rounded-full px-1.5 py-px text-[9px] font-black ${count ? 'bg-emerald-500/10 text-emerald-300' : 'bg-white/5 text-white/35'}`}>
+                              {count || '—'}
+                            </span>
+                          </div>
+                        </td>
+                        {DAYS.map((d) => {
+                          const cells = byCell[`${g}||${d}`] || [];
+                          const isToday = d === today;
+                          return (
+                            <td key={d} className={`border-b border-white/10 p-1.5 align-top ${isToday ? 'bg-brand-500/[0.04]' : ''}`}>
+                              <div className="flex min-h-[70px] flex-col gap-1">
+                                {cells.map((s) => (
+                                  <Chip
+                                    key={s.id}
+                                    s={s}
+                                    conflict={conflictIds.has(s.id)}
+                                    onEdit={() => openEdit(s)}
+                                    onDuplicate={() => duplicate(s)}
+                                    onDelete={() => del(s.id)}
+                                    onToggle={() => toggleActive(s)}
+                                  />
+                                ))}
+                                <button
+                                  onClick={() => openAdd({ grade: g, day: d })}
+                                  title={`إضافة موعد لـ ${g} يوم ${d}`}
+                                  className="flex h-6 w-full items-center justify-center rounded-lg border border-dashed border-white/15 text-white/30 transition-colors hover:border-brand-400/60 hover:bg-brand-500/10 hover:text-brand-300"
+                                >
+                                  <Plus size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )
       )}
@@ -480,18 +545,20 @@ export default function ScheduleAdmin() {
       {/* ===== القائمة ===== */}
       {view === 'list' && (
         loading ? (
-          <div className="mt-8"><Spinner /></div>
+          <div className="mt-5 space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-2xl" />)}
+          </div>
         ) : items.length === 0 ? (
-          <div className="mt-8"><Empty text="مفيش مواعيد لحد دلوقتي — اضغط «إضافة موعد جديد» فوق." /></div>
+          <div className="mt-5"><Empty text="مفيش مواعيد لحد دلوقتي — اضغط «إضافة موعد» فوق." /></div>
         ) : filtered.length === 0 ? (
-          <div className="mt-8"><Empty text="مفيش مواعيد مطابقة للفلاتر دي." /></div>
+          <div className="mt-5"><Empty text="مفيش مواعيد مطابقة للفلاتر دي." /></div>
         ) : (
-          <div className="mt-8 space-y-3">
+          <div className="mt-5 space-y-3">
             {DAYS.map((day) => {
               const rows = filtered.filter((f) => f.day === day);
               if (!rows.length) return null;
               return (
-                <div key={day} className="card overflow-hidden">
+                <div key={day} className="overflow-hidden rounded-2xl border border-white/10 bg-ink-900/60">
                   <div className={`flex items-center justify-between gap-2 border-b border-white/10 px-5 py-3 font-extrabold ${dayStyle(day)}`}>
                     <span className="flex items-center gap-2"><Clock size={15} /> {day}</span>
                     <span className="rounded-full bg-ink-950/40 px-2.5 py-0.5 text-xs font-black">{rows.length} حصة</span>
@@ -515,7 +582,6 @@ export default function ScheduleAdmin() {
                             </span>
                           )}
                           {f.note && <span className="truncate text-xs text-white/45">{f.note}</span>}
-                          <span className="flex items-center gap-1 text-[11px] text-white/35"><Hash size={11} /> ترتيب {f.sort_order}</span>
                           {!f.active && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/50">مخفي</span>}
                         </div>
                         <div className="flex shrink-0 items-center gap-3">
@@ -603,9 +669,14 @@ export default function ScheduleAdmin() {
         </div>
       )}
 
-      {/* ورقة التصدير PDF — خارج الشاشة (شريط التمرير الأفقي للجدول الكامل) */}
-      <div aria-hidden="true" className="pointer-events-none fixed top-0 z-[-1] w-max" style={{ left: '-10000px' }} ref={exportRef}>
-        <div style={{ width: 1060, background: '#ffffff', color: '#1f2937', fontFamily: "'Cairo', sans-serif", direction: 'rtl', padding: 28 }}>
+      {/* ورقة التصدير PDF — مخفية خلف كل حاجة لكن ظاهرة للتصوير */}
+      <div
+        aria-hidden="true"
+        ref={exportRef}
+        className="pointer-events-none fixed left-0 top-0 z-[-9999]"
+        style={{ width: 1060, background: '#ffffff', color: '#1f2937', fontFamily: "'Cairo', 'Segoe UI', Tahoma, sans-serif", direction: 'rtl' }}
+      >
+        <div style={{ padding: 28 }}>
           <div style={{ textAlign: 'center', borderBottom: '3px solid #0d9488', paddingBottom: 14 }}>
             <div style={{ fontSize: 24, fontWeight: 900, color: '#0d9488' }}>جدول مواعيد الدروس</div>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>منصة الفيزياء — مستر أحمد علي الديب</div>

@@ -688,8 +688,8 @@ const DEFAULT_SETTINGS = {
   about_title: 'أنا أحمد علي الديب',
   about_text: 'مدرس فيزياء بخبرة أكثر من 15 سنة، بدرّس الطلاب من الصف الرابع الابتدائي لحد الصف الثالث الثانوي، بشغف تبسيط أصعب المفاهيم الفيزيائية وتحويلها لأفكار سهلة وواضحة. من سنين وبساعد آلاف الطلاب يوصلوا للدرجة النهائية في الفيزياء من خلال شرح مبسط، حل مسائل متنوعة، وتدريبات على نمط امتحانات السنوات السابقة.',
   about_quote: 'الفيزياء مش حفظ قوانين.. الفيزياء فهم، والقانون لما تفهمه مش هتنساه.',
-  phone: '01099724825',
-  whatsapp: '201099724825',
+  phone: '01016651095',
+  whatsapp: '201016651095',
   email: 'ahmedeldeeb@example.com',
   city: 'مصر',
   youtube: 'https://youtube.com/',
@@ -703,7 +703,7 @@ const DEFAULT_SETTINGS = {
   stats_lessons: '300',
   schedule_note: 'مواعيد الحصص الحضورية (أوفلاين) بتتحدث باستمرار من المدرس — لو في أي تغيير هتلاقيه هنا فوراً.',
   schedule_address: 'بنشوف المكان الأقرب ليك عند الحجز — تواصل مع مستر أحمد للتفاصيل.',
-  vodafone_cash: '01099724825',
+  vodafone_cash: '01016651095',
   vodafone_cash_name: 'أحمد علي الديب'
 };
 
@@ -891,6 +891,9 @@ async function seed(d) {
   };
   await fixSetting('hero_badge', 'مستر أحمد علي الديب • فيزياء الثانوية العامة', DEFAULT_SETTINGS.hero_badge);
   await fixSetting('about_text', 'مدرس فيزياء بخبرة أكثر من 15 سنة في تدريس الثانوية العامة، بشغف تبسيط أصعب المفاهيم الفيزيائية وتحويلها لأفكار سهلة وواضحة. من سنين وبساعد آلاف الطلاب يوصلوا للدرجة النهائية في الفيزياء من خلال شرح مبسط، حل مسائل متنوعة، وتدريبات على نمط امتحانات السنوات السابقة.', DEFAULT_SETTINGS.about_text);
+  await fixSetting('phone', '01099724825', DEFAULT_SETTINGS.phone);
+  await fixSetting('whatsapp', '201099724825', DEFAULT_SETTINGS.whatsapp);
+  await fixSetting('vodafone_cash', '01099724825', DEFAULT_SETTINGS.vodafone_cash);
 
   await d.run('UPDATE faqs SET answer = ? WHERE question = ?', ['المنصة بتغطي الفيزياء من الصف الرابع الابتدائي لحد الصف الثالث الثانوي، بكل أجزائها وفصولها الدراسية، مع شرح مبسط يناسب كل مرحلة ومسائل على نمط الامتحان.', 'إيه الصفوف اللي بتغطيها المنصة؟']);
   const schedFaqCount = await d.get("SELECT COUNT(*) AS c FROM faqs WHERE question = 'في مواعيد حصص أوفلاين (حضورية)؟'");

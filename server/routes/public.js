@@ -5,7 +5,7 @@ const { audit } = require('../security');
 const { validate, contactSchema, testimonialSubmitSchema, testimonialPublicSchema, bookingSchema } = require('../middleware/validate');
 const { upload, validateFileSignature } = require('../middleware/upload');
 const { saveFile } = require('../storage');
-const { getCached, setCached } = require('../cache');
+
 const { getCustomerBySession } = require('../security');
 const { requireCustomer } = require('../middleware/customerAuth');
 const { ah } = require('../asyncHandler');
@@ -38,17 +38,9 @@ const bookingLimiter = rateLimit({
   message: { error: 'أرسلت كتير، جرب بعد ساعة' }
 });
 
-async function cachedRoute(req, res, ttlMs = 30000, builder) {
-  const key = req.originalUrl;
-  const hit = getCached(key);
-  if (hit) {
-    res.set('Cache-Control', 'no-cache');
-    return res.json(hit);
-  }
-  const data = await builder();
-  setCached(key, data, ttlMs);
+async function cachedRoute(req, res, ttlMs, builder) {
   res.set('Cache-Control', 'no-cache');
-  res.json(data);
+  res.json(await builder());
 }
 
 router.get('/site', ah(async (req, res) => {

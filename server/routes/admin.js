@@ -11,7 +11,7 @@ const {
   materialSchema, taskSchema
 } = require('../middleware/validate');
 const { audit } = require('../security');
-const { getCached, setCached, clearCache } = require('../cache');
+const { clearCache } = require('../cache');
 const { sendSpreadsheet, sendWorkbook, isoToDisplay } = require('../exports');
 const { ah } = require('../asyncHandler');
 
@@ -91,9 +91,6 @@ function cairoNowParts() {
   return { hour: h, minute: parseInt(get('minute'), 10) };
 }
 router.get('/dashboard', ah(async (req, res) => {
-  const cached = getCached('admin:dashboard');
-  if (cached) return res.json(cached);
-
   const count = async (table) => (await db.get(`SELECT COUNT(*) AS c FROM ${table}`)).c;
   const unread = (await db.get('SELECT COUNT(*) AS c FROM messages WHERE is_read = 0')).c;
   const students = (await db.get('SELECT COUNT(*) AS c FROM customers')).c;
@@ -182,7 +179,6 @@ router.get('/dashboard', ah(async (req, res) => {
     grades,
     recentEnrollments
   };
-  setCached('admin:dashboard', payload, 30000);
   res.json(payload);
 }));
 

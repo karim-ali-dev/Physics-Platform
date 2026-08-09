@@ -112,8 +112,6 @@ app.use('/api/bot', botRoutes);
 app.use('/api/customer', customerRoutes);
 app.use('/api/ai', aiRoutes);
 
-app.use('/api', (req, res) => res.status(404).json({ error: 'الرابط غير موجود' }));
-
 let adminApp = null;
 if (ADMIN_PORT) {
   adminApp = express();
@@ -143,6 +141,8 @@ if (ADMIN_PORT) {
 } else {
   app.use('/api/admin', adminRoutes);
 }
+
+app.use('/api', (req, res) => res.status(404).json({ error: 'الرابط غير موجود' }));
 
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist, { maxAge: '1h', index: false, setHeaders: (res, filePath) => {

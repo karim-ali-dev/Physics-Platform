@@ -332,7 +332,7 @@ export default function Community() {
           ) : (
             <div className="space-y-3">
               {posts.map((p) => (
-                <article key={p.id} className="card cursor-pointer p-5 transition-colors hover:border-brand-500/40">
+                <article key={p.id} className="card hover-lift cursor-pointer p-5 transition-colors hover:border-brand-500/40">
                   <button onClick={() => openPost(p.id)} className="block w-full text-right">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-white/45">
                       <span className="rounded-full bg-brand-500/15 px-2.5 py-0.5 font-bold text-brand-300">{p.category}</span>

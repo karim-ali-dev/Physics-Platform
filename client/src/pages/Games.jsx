@@ -727,7 +727,7 @@ export default function Games() {
       ) : (
         <section className="container-x mt-4 grid gap-6 md:grid-cols-2">
           {GAMES.map((g, i) => (
-            <div key={g.id} className="card group flex flex-col p-6 transition-colors hover:border-brand-500/40">
+            <div key={g.id} className="card hover-lift group flex flex-col p-6 transition-colors hover:border-brand-500/40">
               <div className="flex items-start justify-between">
                 <span
                   className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-400"

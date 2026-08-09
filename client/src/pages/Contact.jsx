@@ -47,7 +47,7 @@ export default function Contact() {
       <div className="grid gap-10 lg:grid-cols-5">
         <div className="space-y-4 lg:col-span-2">
           {info.map((item) => (
-            <div key={item.label} className="card flex items-center gap-4 p-5">
+            <div key={item.label} className="card hover-lift flex items-center gap-4 p-5">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-500/15 text-brand-400">
                 <item.icon size={20} />
               </span>

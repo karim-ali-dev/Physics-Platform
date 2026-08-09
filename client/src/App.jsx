@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useApp } from './store/AppContext';
 import { ADMIN_PATH } from './config';
@@ -134,12 +134,32 @@ export default function App() {
   );
 }
 
+function PageTransition({ children }) {
+  const location = useLocation();
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.classList.remove('page-enter');
+    void el.offsetWidth;
+    el.classList.add('page-enter');
+  }, [location.pathname]);
+
+  return (
+    <div ref={ref} className="page-enter">
+      {children}
+    </div>
+  );
+}
+
 function PublicLayout() {
   return (
     <>
       <Navbar />
       <main className="flex-1">
-        <Routes>
+        <PageTransition>
+          <Routes>
           <Route path="/" element={<Suspense fallback={<FullLoader />}><Home /></Suspense>} />
           <Route path="/courses" element={<Suspense fallback={<FullLoader />}><Courses /></Suspense>} />
           <Route path="/courses/:id" element={<Suspense fallback={<FullLoader />}><CourseDetail /></Suspense>} />
@@ -157,7 +177,8 @@ function PublicLayout() {
           <Route path="/student/materials" element={<Suspense fallback={<FullLoader />}><StudentProtectedRoute><StudentMaterials /></StudentProtectedRoute></Suspense>} />
           <Route path="/community" element={<Suspense fallback={<FullLoader />}><Community /></Suspense>} />
           <Route path="*" element={<NotFound />} />
-        </Routes>
+          </Routes>
+        </PageTransition>
       </main>
       <FloatingIcons />
       <Footer />

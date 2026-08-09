@@ -54,7 +54,7 @@ export default function About() {
 
       <div className="container-x mt-24 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {values.map((v, i) => (
-          <div key={v.title} className="card p-6 text-center hover:border-brand-500/40">
+          <div key={v.title} className="card hover-lift p-6 text-center hover:border-brand-500/40">
             <span
               className="mx-auto mb-4 flex h-14 w-14 animate-float items-center justify-center rounded-2xl bg-brand-500/15 text-brand-400"
               style={{ animationDelay: `${i * 0.25}s` }}

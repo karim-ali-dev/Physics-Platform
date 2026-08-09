@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: physics-platform
+    env: node
+    plan: free
+    buildCommand: npm run install:all && npm run build
+    startCommand: npm --prefix server run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_USERNAME
+        value: karim
+      - key: ADMIN_PASSWORD
+        value: Karim@2026

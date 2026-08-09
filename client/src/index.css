@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ink-950: 7 7 13;
+    --ink-900: 11 11 22;
+    --ink-850: 15 15 29;
+    --ink-800: 21 21 39;
+    --ink-700: 30 30 54;
+    --ink-600: 42 42 74;
+    --fg: 255 255 255;
+    color-scheme: dark;
+  }
+  html[data-theme='light'] {
+    --ink-950: 244 246 252;
+    --ink-900: 255 255 255;
+    --ink-850: 238 240 248;
+    --ink-800: 230 233 244;
+    --ink-700: 218 221 235;
+    --ink-600: 202 207 227;
+    --fg: 24 28 48;
+    color-scheme: light;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-ink-950 text-white font-sans antialiased;
+    overflow-x: hidden;
+  }
+  ::selection {
+    @apply bg-brand-600 text-pure;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--ink-900));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--ink-600));
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #0d9488;
+  }
+}
+
+@layer components {
+  .container-x {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+  .grad-text {
+    background: linear-gradient(90deg, #2dd4bf, #fbbf24);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .glass {
+    @apply border border-white/10 bg-white/[.04] backdrop-blur-md;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-6 py-3 font-bold text-pure transition-all duration-300 hover:bg-brand-500 hover:shadow-glow;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 font-bold text-white transition-all duration-300 hover:border-brand-400 hover:text-brand-300;
+  }
+  .card {
+    @apply rounded-2xl border border-white/10 bg-ink-800/60 shadow-card transition-all duration-300;
+  }
+  .input {
+    @apply w-full rounded-xl border border-white/10 bg-ink-900 px-4 py-3 text-white placeholder-white/35 outline-none transition-colors focus:border-brand-500;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-white/80;
+  }
+}
+
+html[data-theme='light'] .text-brand-300 { color: #0f766e; }
+html[data-theme='light'] .text-brand-400 { color: #0d9488; }
+html[data-theme='light'] .text-neon-300 { color: #b45309; }
+html[data-theme='light'] .text-neon-400 { color: #d97706; }
+html[data-theme='light'] .text-emerald-300 { color: #047857; }
+html[data-theme='light'] .text-amber-300 { color: #b45309; }
+html[data-theme='light'] .text-amber-400 { color: #d97706; }
+html[data-theme='light'] .text-blue-400 { color: #1d4ed8; }
+html[data-theme='light'] .text-red-400 { color: #b91c1c; }
+html[data-theme='light'] .grid-bg {
+  background-image:
+    linear-gradient(rgba(13, 148, 136, .08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 148, 136, .08) 1px, transparent 1px);
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(20, 184, 166, .06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 184, 166, .06) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* منافع حركية إضافية لأيقونات الفيزياء */
+@keyframes electronSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.orbit-electron {
+  animation: electronSpin 4s linear infinite;
+}
+.orbit-electron-rev {
+  animation: electronSpin 7s linear infinite reverse;
+}
+
+.electron-dot {
+  top: -4px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 9999px;
+}
+
+@keyframes beam {
+  0% { opacity: 0; transform: translateY(8px); }
+  40% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+.beam {
+  animation: beam 2.4s ease-in-out infinite;
+}

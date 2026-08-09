@@ -146,8 +146,15 @@ const studentForgotSchema = z.object({
   email: emailStr
 });
 
+const studentVerifyCodeSchema = z.object({
+  email: emailStr,
+  code: z.string().trim().min(4, 'اكتب الكود').max(8)
+});
+
 const studentResetSchema = z.object({
-  token: z.string().trim().min(10, 'الرابط غير صالح').max(200),
+  token: z.string().trim().min(10, 'الرابط غير صالح').max(200).optional().or(z.literal('')),
+  email: emailStr.optional().or(z.literal('')),
+  code: z.string().trim().min(4, 'اكتب الكود').max(8).optional().or(z.literal('')),
   password: passwordStr
 });
 
@@ -181,17 +188,28 @@ const settingsSchema = z.object({
 }).default({});
 
 const scheduleSchema = z.object({
-  grade: z.string().trim().min(1, 'اكتب الصف').max(100),
-  day: z.string().trim().min(1, 'اختار اليوم').max(50),
-  start_time: z.string().trim().min(1, 'اكتب وقت البداية').max(30),
-  end_time: z.string().trim().max(30).default(''),
-  note: z.string().trim().max(500).default(''),
-  period: z.string().trim().max(20).default(''),
-  tag: z.string().trim().max(60).default(''),
-  tag_active: z.boolean().default(true),
-  active: z.boolean().default(true),
-  sort_order: z.number().int().default(0)
-});
+      grade: z.string().trim().min(1, 'اختر الصف').max(100),
+      day: z.string().trim().min(1, 'اختر اليوم').max(50),
+      start_time: z.string().trim().min(1, 'اكتب وقت البداية').max(30),
+      end_time: z.string().trim().max(30).default(''),
+      note: z.string().trim().max(500).default(''),
+      period: z.string().trim().max(20).default(''),
+      tag: z.string().trim().max(60).default(''),
+      tag_active: z.boolean().default(true),
+      active: z.boolean().default(true),
+      sort_order: z.number().int().default(0)
+    });
+
+    const taskSchema = z.object({
+      title: z.string().trim().min(1, 'اكتب عنوان المهمة').max(200),
+      description: z.string().trim().max(2000).default(''),
+      category: z.string().trim().max(100).default(''),
+      grade: z.string().trim().max(100).default(''),
+      priority: z.enum(['high', 'medium', 'low']).default('medium'),
+      status: z.enum(['pending', 'in_progress', 'done']).default('pending'),
+      due_date: z.string().trim().max(20).default(''),
+      due_time: z.string().trim().max(20).default('')
+    });
 
 const materialSchema = z.object({
   title: z.string().trim().min(1, 'اكتب عنوان الملف').max(200),
@@ -227,6 +245,7 @@ module.exports = {
   studentRegisterSchema,
   studentLoginSchema,
   studentForgotSchema,
+  studentVerifyCodeSchema,
   studentResetSchema,
   studentPasswordChangeSchema,
   enrollSchema,
@@ -245,5 +264,6 @@ module.exports = {
   contactSchema,
   settingsSchema,
   scheduleSchema,
-  materialSchema
+  materialSchema,
+  taskSchema
 };

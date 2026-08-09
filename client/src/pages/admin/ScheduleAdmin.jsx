@@ -4,7 +4,8 @@ import { api } from '../../api';
 import { GRADES, DAYS } from '../../config';
 import { PageHeader, Field, TextInput, TextArea, Select, ConfirmDelete, Empty, Alert } from '../../components/admin/ui';
 import Spinner from '../../components/Spinner';
-import { cairoClock, fmtClock, fmt24m, fmtTime24, parseTime24, nextSession, humanMinutes, dayLabel, DAY_ORDER } from '../../utils/schedule';
+import { cairoClock, fmtClock12, fmt12m, fmt12Time, fmt24m, parseTime24, nextSession, humanMinutes, dayLabel, DAY_ORDER } from '../../utils/schedule';
+import { TimePicker12 } from '../../components/admin/ui';
 
 const blank = { grade: GRADES[0], day: DAYS[0], start_time: '', end_time: '', note: '', period: 'الليل', tag: '', tag_active: true, sort_order: 0, active: true };
 
@@ -94,7 +95,7 @@ function Chip({ s, onEdit, onDuplicate, onDelete, onToggle }) {
     <div className={`group relative rounded-lg border px-2 py-1.5 text-right text-[11px] font-bold ${s.active !== 0 ? 'border-brand-500/30 bg-brand-500/10 text-brand-100' : 'border-white/10 bg-white/5 text-white/40 line-through'}`}>
       <button onClick={onEdit} className="block w-full" title="تعديل">
         <span className="flex items-center justify-between gap-1">
-          <span className="text-neon-300">{fmtTime24(s.start_time)}{s.end_time ? ` - ${fmtTime24(s.end_time)}` : ''}</span>
+          <span className="text-neon-300">{fmt12Time(s.start_time)}{s.end_time ? ` - ${fmt12Time(s.end_time)}` : ''}</span>
           <span>{periodIcon(s.period)}</span>
         </span>
         {s.tag && <span className="mt-0.5 block truncate text-[10px] text-orange-300/80">🔖 {s.tag}</span>}
@@ -248,16 +249,16 @@ export default function ScheduleAdmin() {
             </span>
             <div>
               <div className="text-xs font-bold text-white/50">{nxt.status === 'ongoing' ? 'الحصة الجارية دلوقتي' : 'الحصة اللي جاية'}</div>
-              <div className="text-sm font-black">{nxt.item.grade} • يوم {nxt.item.day} • <span className="text-neon-300">{fmt24m(nxt.startMin)}</span></div>
+              <div className="text-sm font-black">{nxt.item.grade} • يوم {nxt.item.day} • <span className="text-neon-300">{fmt12m(nxt.startMin)}</span></div>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <span className="hidden rounded-full bg-white/5 px-3 py-1.5 text-xs font-bold text-white/55 sm:block">
-              {nxt.status === 'ongoing' ? `بتخلص ${nxt.item.end_time ? fmtTime24(nxt.item.end_time) : 'بعد شوية'}` : `${dayLabel(nxt.dayOffset)} — بعد ${humanMinutes(nxt.minutesUntil)}`}
+              {nxt.status === 'ongoing' ? `بتخلص ${nxt.item.end_time ? fmt12Time(nxt.item.end_time) : 'بعد شوية'}` : `${dayLabel(nxt.dayOffset)} — بعد ${humanMinutes(nxt.minutesUntil)}`}
             </span>
             <div className="text-left">
-              <div className="text-[10px] font-bold text-white/45">القاهرة (24h)</div>
-              <div className="font-mono text-xl font-black text-neon-300" dir="ltr">{fmtClock(now)}</div>
+              <div className="text-[10px] font-bold text-white/45">القاهرة (12 ساعة)</div>
+              <div className="font-mono text-xl font-black text-neon-300" dir="ltr">{fmtClock12(now)}</div>
             </div>
           </div>
         </div>
@@ -417,7 +418,7 @@ export default function ScheduleAdmin() {
                             </span>
                           )}
                           <span className="flex items-center gap-1 text-sm font-bold text-neon-300">
-                            <Clock size={13} /> {fmtTime24(f.start_time)}{f.end_time ? ` - ${fmtTime24(f.end_time)}` : ''}
+                            <Clock size={13} /> {fmt12Time(f.start_time)}{f.end_time ? ` - ${fmt12Time(f.end_time)}` : ''}
                           </span>
                           {f.tag && (
                             <span className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-black ${f.tag_active !== 0 ? 'bg-orange-400/15 text-orange-300' : 'bg-white/10 text-white/40'}`}>
@@ -465,11 +466,11 @@ export default function ScheduleAdmin() {
                 <Field label="اليوم" required>
                   <Select options={DAYS.map((d) => ({ value: d, label: d }))} value={form.day} onChange={(e) => setForm({ ...form, day: e.target.value })} required />
                 </Field>
-                <Field label="وقت البداية (24 ساعة)" required hint="مثال: 18:00">
-                  <input type="time" className="input" step="300" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} required />
+                <Field label="وقت البداية" required hint="بنظام 12 ساعة — بتوقيت القاهرة">
+                  <TimePicker12 value={form.start_time} onChange={(v) => setForm({ ...form, start_time: v })} />
                 </Field>
-                <Field label="وقت النهاية (24 ساعة)" hint="مثال: 19:30">
-                  <input type="time" className="input" step="300" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} />
+                <Field label="وقت النهاية" hint="اختياري — بنظام 12 ساعة">
+                  <TimePicker12 value={form.end_time} onChange={(v) => setForm({ ...form, end_time: v })} />
                 </Field>
                 <Field label="فترة الحصة" required>
                   <Select

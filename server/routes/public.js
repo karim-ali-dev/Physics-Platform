@@ -94,7 +94,7 @@ router.get('/courses/:id', ah(async (req, res) => {
 
 router.get('/testimonials', ah(async (req, res) => {
   await cachedRoute(req, res, 30000, async () => ({
-    testimonials: await db.all("SELECT * FROM testimonials WHERE active = 1 AND status = 'approved' ORDER BY id DESC")
+    testimonials: await db.all("SELECT * FROM testimonials WHERE active = 1 AND status = 'approved' ORDER BY id DESC LIMIT 5")
   }));
 }));
 

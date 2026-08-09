@@ -28,6 +28,50 @@ export function fmt24m(minutes) {
 export const fmtClock = ({ hour, minute, second }) =>
   `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second ?? 0).padStart(2, '0')}`;
 
+/* نظام 12 ساعة (بتوقيت القاهرة) */
+export function fmt12m(minutes) {
+  const m = Math.max(0, Math.round(minutes || 0)) % 1440;
+  let h = Math.floor(m / 60);
+  const min = m % 60;
+  const period = h < 12 ? 'ص' : 'م';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${String(min).padStart(2, '0')} ${period}`;
+}
+
+export function fmt12Time(str) {
+  const m = parseTime24(str);
+  return m == null ? String(str || '') : fmt12m(m);
+}
+
+export const fmtClock12 = ({ hour, minute, second }) => {
+  let h = (hour ?? 0) % 24;
+  const period = h < 12 ? 'ص' : 'م';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${String(minute ?? 0).padStart(2, '0')}:${String(second ?? 0).padStart(2, '0')} ${period}`;
+};
+
+/* يقسّم وقت 24 ساعة إلى ساعة/دقيقة/فترة (لأداة الإدخال بنظام 12 ساعة) */
+export function split12(str) {
+  const m = parseTime24(str);
+  if (m == null) return { h: 7, min: 0, pm: false };
+  let h = Math.floor(m / 60);
+  const min = m % 60;
+  const pm = h >= 12;
+  h = h % 12;
+  if (h === 0) h = 12;
+  return { h, min, pm };
+}
+
+/* يبني نص 24 ساعة من ساعة/دقيقة/فترة */
+export function join24(h, min, pm) {
+  let h24 = Number(h) % 12;
+  if (pm) h24 += 12;
+  return `${String(h24).padStart(2, '0')}:${String(Number(min)).padStart(2, '0')}`;
+}
+
+
 /* يحوّل نص وقت (6:00 م / 18:00 / 6 مساءً / 06:00 PM) إلى دقائق من منتصف الليل */
 export function parseTime24(str) {
   const s = String(str || '').trim().toLowerCase().replace(/\./g, '');

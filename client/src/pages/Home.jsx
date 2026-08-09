@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, ArrowLeft, Star, CheckCircle2, MessageCircle, GraduationCap, Gamepad2, CalendarDays } from 'lucide-react';
+import { Play, ArrowLeft, CheckCircle2, MessageCircle, GraduationCap, Gamepad2, CalendarDays } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store/AppContext';
 import Scene3D from '../components/Scene3D';
 import Atom3D from '../components/Atom3D';
 import PhysicsIcon from '../components/PhysicsIcon';
 import SectionHeading from '../components/SectionHeading';
+import Testimonials3D from '../components/Testimonials3D';
 
 export default function Home() {
   const { settings } = useApp();
@@ -17,7 +18,7 @@ export default function Home() {
     Promise.all([api('/api/courses'), api('/api/testimonials')])
       .then(([c, t]) => {
         setCourses(c.courses.slice(0, 6));
-        setTestimonials(t.testimonials.slice(0, 3));
+        setTestimonials(t.testimonials.slice(0, 5));
       })
       .catch(() => {});
   }, []);
@@ -232,25 +233,11 @@ export default function Home() {
       <section className="border-t border-white/5 bg-ink-900/50 py-24">
         <div className="container-x">
           <SectionHeading badge="آراء الطلاب" title="إيه اللي بيقولوه عن مستر أحمد؟" />
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {testimonials.map((t) => (
-              <div key={t.id} className="card p-6">
-                <div className="mb-3 flex gap-0.5 text-amber-400">
-                  {Array.from({ length: t.rating || 5 }).map((_, i) => <Star key={i} size={16} fill="currentColor" />)}
-                </div>
-                <p className="text-sm leading-7 text-white/75">"{t.content}"</p>
-                <div className="mt-5 flex items-center gap-3 border-t border-white/10 pt-4">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-neon-400 text-sm font-black text-pure">
-                    {t.client_name?.charAt(0) || 'ط'}
-                  </span>
-                  <div>
-                    <div className="text-sm font-extrabold">{t.client_name}</div>
-                    <div className="text-xs text-white/45">{t.client_role}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          {testimonials.length > 0 ? (
+            <Testimonials3D items={testimonials} />
+          ) : (
+            <p className="py-16 text-center text-white/45">مفيش تقييمات معتمدة لحد دلوقتي.</p>
+          )}
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4 text-sm text-white/50">
             <CheckCircle2 size={16} className="text-brand-400" /> كل الكورسات مجانية
             <CheckCircle2 size={16} className="text-brand-400" /> تقدمك محفوظ تلقائياً

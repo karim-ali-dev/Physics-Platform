@@ -37,6 +37,7 @@ const MessagesAdmin = lazy(() => import('./pages/admin/MessagesAdmin'));
 const SettingsAdmin = lazy(() => import('./pages/admin/SettingsAdmin'));
 const SecurityAdmin = lazy(() => import('./pages/admin/SecurityAdmin'));
 const ScheduleAdmin = lazy(() => import('./pages/admin/ScheduleAdmin'));
+const TasksAdmin = lazy(() => import('./pages/admin/TasksAdmin'));
 const HelpRequestsAdmin = lazy(() => import('./pages/admin/HelpRequestsAdmin'));
 const PaymentsAdmin = lazy(() => import('./pages/admin/PaymentsAdmin'));
 const BookingsAdmin = lazy(() => import('./pages/admin/BookingsAdmin'));
@@ -116,6 +117,7 @@ export default function App() {
           <Route path="faqs" element={<Suspense fallback={<Loader />}><FaqsAdmin /></Suspense>} />
           <Route path="messages" element={<Suspense fallback={<Loader />}><MessagesAdmin /></Suspense>} />
           <Route path="schedule" element={<Suspense fallback={<Loader />}><ScheduleAdmin /></Suspense>} />
+          <Route path="tasks" element={<Suspense fallback={<Loader />}><TasksAdmin /></Suspense>} />
           <Route path="help-requests" element={<Suspense fallback={<Loader />}><HelpRequestsAdmin /></Suspense>} />
           <Route path="payments" element={<Suspense fallback={<Loader />}><PaymentsAdmin /></Suspense>} />
           <Route path="bookings" element={<Suspense fallback={<Loader />}><BookingsAdmin /></Suspense>} />

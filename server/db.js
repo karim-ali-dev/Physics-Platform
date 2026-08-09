@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS customers (
   facebook_id TEXT DEFAULT '',
   avatar TEXT DEFAULT '',
   reset_token_hash TEXT DEFAULT '',
+  reset_code_hash TEXT DEFAULT '',
   reset_expires TEXT DEFAULT '',
   created_at TEXT NOT NULL,
   last_login TEXT DEFAULT ''
@@ -186,6 +187,21 @@ CREATE TABLE IF NOT EXISTS schedule_items (
   sort_order INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  category TEXT DEFAULT '',
+  grade TEXT DEFAULT '',
+  priority TEXT DEFAULT 'medium',
+  status TEXT DEFAULT 'pending',
+  due_date TEXT DEFAULT '',
+  due_time TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -414,8 +430,10 @@ const PG_DDL = [
     password_hash TEXT NOT NULL DEFAULT '',
     google_id TEXT NOT NULL DEFAULT '',
     facebook_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
     avatar TEXT NOT NULL DEFAULT '',
     reset_token_hash TEXT NOT NULL DEFAULT '',
+    reset_code_hash TEXT NOT NULL DEFAULT '',
     reset_expires TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '',
     parent_phone TEXT NOT NULL DEFAULT '',
@@ -524,6 +542,20 @@ const PG_DDL = [
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    grade TEXT NOT NULL DEFAULT '',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'pending',
+    due_date TEXT NOT NULL DEFAULT '',
+    due_time TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL DEFAULT ''
   )`,
   `CREATE TABLE IF NOT EXISTS bookings (
     id SERIAL PRIMARY KEY,
@@ -689,7 +721,25 @@ const POST_INIT_FIXUPS = [
 
 const PG_MIGRATIONS = [
   "ALTER TABLE help_requests ADD COLUMN IF NOT EXISTS client_id TEXT NOT NULL DEFAULT ''",
-  "ALTER TABLE help_requests ADD COLUMN IF NOT EXISTS student_id INTEGER NOT NULL DEFAULT 0"
+  "ALTER TABLE help_requests ADD COLUMN IF NOT EXISTS student_id INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'",
+  "ALTER TABLE customers ADD COLUMN IF NOT EXISTS reset_code_hash TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE testimonials ADD COLUMN IF NOT EXISTS student_id INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE payments ADD COLUMN IF NOT EXISTS payer_phone TEXT NOT NULL DEFAULT ''",
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    grade TEXT NOT NULL DEFAULT '',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'pending',
+    due_date TEXT NOT NULL DEFAULT '',
+    due_time TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL DEFAULT ''
+  )`
 ];
 
 /* ============================================================
@@ -752,12 +802,21 @@ async function initPostgres() {
     },
     async run(sql, params = []) {
       let q = convertPlaceholders(pgShim(sql));
-      if (/^\s*INSERT/i.test(q) && !/RETURNING/i.test(q)) q += ' RETURNING id';
-      const r = await pool.query(q, params);
-      return {
-        changes: r.rowCount,
-        lastInsertRowid: r.rows && r.rows[0] ? Number(r.rows[0].id) : 0
-      };
+      const withReturning = /^\s*INSERT/i.test(q) && !/RETURNING/i.test(q);
+      if (withReturning) q += ' RETURNING id';
+      try {
+        const r = await pool.query(q, params);
+        return {
+          changes: r.rowCount,
+          lastInsertRowid: r.rows && r.rows[0] ? Number(r.rows[0].id) : 0
+        };
+      } catch (err) {
+        if (withReturning && err.code === '42703') {
+          const r2 = await pool.query(convertPlaceholders(pgShim(sql)), params);
+          return { changes: r2.rowCount, lastInsertRowid: 0 };
+        }
+        throw err;
+      }
     },
     async exec(sql) { await pool.query(sql); },
     pool
@@ -807,6 +866,7 @@ await ensureColumn('customers', 'facebook_id', "TEXT DEFAULT ''");
 await ensureColumn('customers', 'status', "TEXT DEFAULT 'active'");
   await ensureColumn('customers', 'avatar', "TEXT DEFAULT ''");
   await ensureColumn('customers', 'reset_token_hash', "TEXT DEFAULT ''");
+  await ensureColumn('customers', 'reset_code_hash', "TEXT DEFAULT ''");
   await ensureColumn('customers', 'reset_expires', "TEXT DEFAULT ''");
   await ensureColumn('customers', 'phone', "TEXT DEFAULT ''");
   await ensureColumn('customers', 'parent_phone', "TEXT DEFAULT ''");
@@ -858,9 +918,7 @@ const DEFAULT_SETTINGS = {
   gemini_api_key: '',
   gemini_model: 'gemini-3.5-flash',
   google_client_id: '',
-  google_client_secret: '',
-  facebook_app_id: '',
-  facebook_app_secret: ''
+  google_client_secret: ''
 };
 
 const DEFAULT_COURSES = [
@@ -1059,8 +1117,6 @@ await fixSetting('gemini_api_key', '', '');
 await fixSetting('gemini_model', 'gemini-flash-latest', 'gemini-3.5-flash');
 await fixSetting('google_client_id', '', '');
 await fixSetting('google_client_secret', '', '');
-await fixSetting('facebook_app_id', '', '');
-await fixSetting('facebook_app_secret', '', '');
 
   await d.run('UPDATE faqs SET answer = ? WHERE question = ?', ['المنصة بتغطي الفيزياء من الصف الرابع الابتدائي لحد الصف الثالث الثانوي، بكل أجزائها وفصولها الدراسية، مع شرح مبسط يناسب كل مرحلة ومسائل على نمط الامتحان.', 'إيه الصفوف اللي بتغطيها المنصة؟']);
   const schedFaqCount = await d.get("SELECT COUNT(*) AS c FROM faqs WHERE question = 'في مواعيد حصص أوفلاين (حضورية)؟'");

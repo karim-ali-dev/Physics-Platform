@@ -31,6 +31,7 @@ async function saveFile({ buffer, originalname, mimeType }) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'apikey': SUPABASE_KEY,
         'Content-Type': mimeType || 'application/octet-stream',
         'x-upsert': 'false'
       },
@@ -54,7 +55,10 @@ async function deleteByUrl(url) {
     try {
       await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${key}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'apikey': SUPABASE_KEY
+        }
       });
     } catch (_) { /* ignore */ }
     return;

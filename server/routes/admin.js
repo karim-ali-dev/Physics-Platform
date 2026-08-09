@@ -8,7 +8,7 @@ const { saveFile, deleteByUrl } = require('../storage');
 const {
   validate, courseSchema, lessonSchema, quizSchema, questionSchema,
   testimonialSchema, testimonialStatusSchema, faqSchema, settingsSchema, scheduleSchema, paymentStatusSchema,
-  materialSchema
+  materialSchema, taskSchema
 } = require('../middleware/validate');
 const { audit } = require('../security');
 const { getCached, setCached, clearCache } = require('../cache');
@@ -61,6 +61,35 @@ function bookingListQuery(q) {
 }
 
 /* ---------------- Dashboard ---------------- */
+const CAIRO = 'Africa/Cairo';
+
+function cairoDayStrings(n) {
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: CAIRO, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const base = Date.now();
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) out.push(fmt.format(new Date(base - i * 86400000)));
+  return out;
+}
+
+function cairoDayStartUtc(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  let t = Date.UTC(y, m - 1, d, 0, 0, 0, 0);
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: CAIRO, year: 'numeric', month: '2-digit', day: '2-digit' });
+  for (let g = 0; g < 48; g++) {
+    if (fmt.format(new Date(t)) >= dateStr) break;
+    t += 3600000;
+  }
+  return new Date(t).toISOString();
+}
+
+function cairoNowParts() {
+  const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: CAIRO, hour: '2-digit', minute: '2-digit', hour12: false });
+  const p = fmt.formatToParts(new Date());
+  const get = (t) => (p.find((x) => x.type === t) || {}).value || '';
+  let h = parseInt(get('hour'), 10);
+  if (h === 24) h = 0;
+  return { hour: h, minute: parseInt(get('minute'), 10) };
+}
 router.get('/dashboard', ah(async (req, res) => {
   const cached = getCached('admin:dashboard');
   if (cached) return res.json(cached);
@@ -90,6 +119,35 @@ router.get('/dashboard', ah(async (req, res) => {
   const recentEnrollments = await db.all(`SELECT e.created_at, c.title AS course_title, cu.name AS student_name
     FROM enrollments e JOIN courses c ON c.id = e.course_id JOIN customers cu ON cu.id = e.student_id
     ORDER BY e.id DESC LIMIT 5`);
+
+  const passQ = await db.get(`SELECT COUNT(*) AS t,
+    COALESCE(SUM(CASE WHEN total > 0 AND CAST(score AS REAL) / total >= 0.7 THEN 1 ELSE 0 END), 0) AS p
+    FROM quiz_attempts`);
+  const passRate = passQ.t > 0 ? Math.round((passQ.p / passQ.t) * 100) : 0;
+
+  const topCourses = await db.all(`SELECT c.title, COUNT(e.id) AS enrollments
+    FROM courses c LEFT JOIN enrollments e ON e.course_id = c.id
+    GROUP BY c.id, c.title ORDER BY enrollments DESC LIMIT 5`);
+
+  const days = cairoDayStrings(7);
+  const trend = [];
+  const dayFmt = new Intl.DateTimeFormat('ar-EG', { timeZone: CAIRO, weekday: 'short', day: 'numeric', month: 'short' });
+  const countRange = async (table, col, startIso, endIso) =>
+    (await db.get(`SELECT COUNT(*) AS c FROM ${table} WHERE ${col} >= ? AND ${col} < ?`, [startIso, endIso])).c;
+  for (let i = 0; i < days.length; i++) {
+    const startIso = cairoDayStartUtc(days[i]);
+    const endIso = i < days.length - 1 ? cairoDayStartUtc(days[i + 1]) : new Date().toISOString();
+    trend.push({
+      day: days[i],
+      label: dayFmt.format(new Date(startIso)),
+      students: await countRange('customers', 'created_at', startIso, endIso),
+      enrollments: await countRange('enrollments', 'created_at', startIso, endIso),
+      attempts: await countRange('quiz_attempts', 'created_at', startIso, endIso)
+    });
+  }
+  const weekStudents = trend.reduce((s, d) => s + d.students, 0);
+  const weekAttempts = trend.reduce((s, d) => s + d.attempts, 0);
+
   const payload = {
     stats: {
       students,
@@ -104,6 +162,9 @@ router.get('/dashboard', ah(async (req, res) => {
       watched,
       attempts,
       avgScore: Math.round(avgScore),
+      passRate,
+      weekStudents,
+      weekAttempts,
       payments,
       pendingPayments,
       paymentsTotal: Math.round(paymentsTotal * 100) / 100,
@@ -112,6 +173,8 @@ router.get('/dashboard', ah(async (req, res) => {
       pendingTestimonials,
       materials
     },
+    trend,
+    topCourses,
     recentMessages,
     recentStudents,
     recentAttempts,
@@ -793,6 +856,86 @@ router.delete('/schedule/:id', ah(async (req, res) => {
   res.json({ ok: true, message: 'تم حذف الموعد' });
 }));
 
+/* ---------------- Tasks (مهام المدرس) ---------------- */
+const TASK_STATUS = ['pending', 'in_progress', 'done'];
+const TASK_PRIORITY = ['high', 'medium', 'low'];
+
+router.get('/tasks/stats', ah(async (req, res) => {
+  const total = (await db.get('SELECT COUNT(*) AS c FROM tasks')).c;
+  const pending = (await db.get("SELECT COUNT(*) AS c FROM tasks WHERE status = 'pending'")).c;
+  const in_progress = (await db.get("SELECT COUNT(*) AS c FROM tasks WHERE status = 'in_progress'")).c;
+  const done = (await db.get("SELECT COUNT(*) AS c FROM tasks WHERE status = 'done'")).c;
+  const today = cairoDayStrings(1)[0];
+  const np = cairoNowParts();
+  const nowHm = `${String(np.hour).padStart(2, '0')}:${String(np.minute).padStart(2, '0')}`;
+  const overdue = (await db.get(`SELECT COUNT(*) AS c FROM tasks
+    WHERE status != 'done' AND due_date != '' AND (due_date < ? OR (due_date = ? AND due_time != '' AND due_time < ?))`,
+    [today, today, nowHm])).c;
+  res.json({ total, pending, in_progress, done, overdue });
+}));
+
+router.get('/tasks', ah(async (req, res) => {
+  const { status, priority, grade, q } = req.query;
+  const where = [];
+  const params = [];
+  if (status && TASK_STATUS.includes(status)) { where.push('status = ?'); params.push(status); }
+  if (priority && TASK_PRIORITY.includes(priority)) { where.push('priority = ?'); params.push(priority); }
+  if (grade) { where.push('grade = ?'); params.push(String(grade)); }
+  if (q && String(q).trim()) {
+    where.push('(title LIKE ? OR description LIKE ?)');
+    const like = `%${String(q).trim()}%`;
+    params.push(like, like);
+  }
+  const sql = `SELECT * FROM tasks${where.length ? ' WHERE ' + where.join(' AND ') : ''}
+    ORDER BY CASE status WHEN 'done' THEN 1 ELSE 0 END,
+      CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+      due_date ASC, due_time ASC, id DESC`;
+  res.json({ tasks: await db.all(sql, params) });
+}));
+
+router.post('/tasks', validate(taskSchema), ah(async (req, res) => {
+  const b = req.body;
+  const now = new Date().toISOString();
+  await db.run('INSERT INTO tasks (title, description, category, grade, priority, status, due_date, due_time, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [b.title, b.description, b.category, b.grade, b.priority, b.status, b.due_date, b.due_time, now, now, b.status === 'done' ? now : '']);
+  await audit(req.user.id, 'task_create', b.title, req.ip);
+  res.json({ ok: true, message: 'تم إضافة المهمة' });
+}));
+
+router.put('/tasks/:id', validate(taskSchema), ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  const row = await db.get('SELECT id FROM tasks WHERE id = ?', [id]);
+  if (!row) return res.status(404).json({ error: 'المهمة مش موجودة' });
+  const b = req.body;
+  const now = new Date().toISOString();
+  await db.run('UPDATE tasks SET title = ?, description = ?, category = ?, grade = ?, priority = ?, status = ?, due_date = ?, due_time = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+    [b.title, b.description, b.category, b.grade, b.priority, b.status, b.due_date, b.due_time, b.status === 'done' ? now : '', now, id]);
+  await audit(req.user.id, 'task_update', b.title, req.ip);
+  res.json({ ok: true, message: 'تم تحديث المهمة' });
+}));
+
+router.patch('/tasks/:id/status', ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  const row = await db.get('SELECT id FROM tasks WHERE id = ?', [id]);
+  if (!row) return res.status(404).json({ error: 'المهمة مش موجودة' });
+  const status = String(req.body.status || '');
+  if (!TASK_STATUS.includes(status)) return res.status(400).json({ error: 'حالة غير صحيحة' });
+  const now = new Date().toISOString();
+  await db.run('UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+    [status, status === 'done' ? now : '', now, id]);
+  await audit(req.user.id, 'task_status', `${id} -> ${status}`, req.ip);
+  res.json({ ok: true, message: 'تم تحديث الحالة' });
+}));
+
+router.delete('/tasks/:id', ah(async (req, res) => {
+  const id = toInt(req.params.id);
+  const row = await db.get('SELECT id FROM tasks WHERE id = ?', [id]);
+  if (!row) return res.status(404).json({ error: 'المهمة مش موجودة' });
+  await db.run('DELETE FROM tasks WHERE id = ?', [id]);
+  await audit(req.user.id, 'task_delete', `task#${id}`, req.ip);
+  res.json({ ok: true, message: 'تم حذف المهمة' });
+}));
+
 /* ---------------- Help requests (AI assistant inbox) ---------------- */
 router.get('/help-requests', ah(async (req, res) => {
   const { status } = req.query;
@@ -960,8 +1103,7 @@ router.put('/settings', validate(settingsSchema), ah(async (req, res) => {
     'vodafone_cash', 'vodafone_cash_name',
     'show_social', 'show_email',
     'gemini_api_key', 'gemini_model',
-    'google_client_id', 'google_client_secret',
-    'facebook_app_id', 'facebook_app_secret'
+    'google_client_id', 'google_client_secret'
   ]);
   const upsert = 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value';
   let changed = 0;

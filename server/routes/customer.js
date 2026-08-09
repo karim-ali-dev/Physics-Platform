@@ -17,20 +17,25 @@ const {
   studentRegisterSchema,
   studentLoginSchema,
   studentForgotSchema,
+  studentVerifyCodeSchema,
   studentResetSchema,
   studentPasswordChangeSchema,
   enrollSchema,
   checkoutSchema,
   quizSubmitSchema
 } = require('../middleware/validate');
-const { sendMail, SMTP_CONFIGURED } = require('../email');
+const { sendMail } = require('../email');
 const { ah } = require('../asyncHandler');
 
 const router = express.Router();
 
-const BASE_URL = (process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`).replace(/\/$/, '');
-
 const CUSTOMER_COOKIE = 'ctoken';
+
+function requestBaseUrl(req) {
+  if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/$/, '');
+  const host = req.get('host');
+  return `${req.protocol}://${host || `localhost:${process.env.PORT || 5000}`}`;
+}
 
 let oauthCache = null;
 let oauthCacheTs = 0;
@@ -42,9 +47,7 @@ async function oauthConfig() {
   } catch (_) { /* ignore */ }
   oauthCache = {
     googleId: process.env.GOOGLE_CLIENT_ID || (settings.google_client_id || '').trim(),
-    googleSecret: process.env.GOOGLE_CLIENT_SECRET || (settings.google_client_secret || '').trim(),
-    fbId: process.env.FACEBOOK_APP_ID || (settings.facebook_app_id || '').trim(),
-    fbSecret: process.env.FACEBOOK_APP_SECRET || (settings.facebook_app_secret || '').trim()
+    googleSecret: process.env.GOOGLE_CLIENT_SECRET || (settings.google_client_secret || '').trim()
   };
   oauthCacheTs = Date.now();
   return oauthCache;
@@ -160,33 +163,60 @@ router.post('/forgot', forgotLimiter, validate(studentForgotSchema), ah(async (r
 
   if (row) {
     const token = crypto.randomBytes(24).toString('hex');
+    const code = String(crypto.randomInt(100000, 999999));
     const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    await db.run('UPDATE customers SET reset_token_hash = ?, reset_expires = ? WHERE id = ?',
-      [sha256(token), expires, row.id]);
+    await db.run('UPDATE customers SET reset_token_hash = ?, reset_code_hash = ?, reset_expires = ? WHERE id = ?',
+      [sha256(token), sha256(code), expires, row.id]);
 
-    const link = `${BASE_URL}/student/reset?token=${token}`;
-    const html = `<div dir="rtl" style="font-family:Tahoma,sans-serif"><h2>إعادة تعيين كلمة السر</h2><p>أهلاً ${row.name}،</p><p>اضغط الرابط ده لإعادة تعيين كلمة السر (صالح لمدة 30 دقيقة):</p><p><a href="${link}" style="display:inline-block;background:#7c3aed;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none">إعادة تعيين كلمة السر</a></p><p>لو معملتش الطلب، تجاهل الرسالة دي.</p></div>`;
-    const result = await sendMail({ to: row.email, subject: 'إعادة تعيين كلمة السر — منصة مستر أحمد علي الديب للفيزياء', html });
+    const link = `${requestBaseUrl(req)}/student/reset?token=${token}`;
+    const html = `<div dir="rtl" style="font-family:Tahoma,sans-serif;line-height:1.8">
+      <h2 style="color:#7c3aed">إعادة تعيين كلمة السر</h2>
+      <p>أهلاً ${row.name}،</p>
+      <p>ده الكود الخاص بك لإعادة تعيين كلمة السر (صالح لمدة 30 دقيقة):</p>
+      <p style="font-size:28px;font-weight:bold;letter-spacing:6px;background:#f3e8ff;border:2px dashed #7c3aed;border-radius:12px;padding:12px;text-align:center;color:#5b21b6;direction:ltr">${code}</p>
+      <p>أو اضغط الرابط ده بدل إدخال الكود:</p>
+      <p><a href="${link}" style="display:inline-block;background:#7c3aed;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none">إعادة تعيين كلمة السر</a></p>
+      <p>لو معملتش الطلب، تجاهل الرسالة دي.</p>
+    </div>`;
+    const result = await sendMail({ to: row.email, subject: 'كود إعادة تعيين كلمة السر — منصة مستر أحمد علي الديب للفيزياء', html });
 
     if (result.sent) {
-      return res.json({ ok: true, message: 'لو الإيميل موجود، هتوصلك رسالة فيها الرابط' });
+      return res.json({ ok: true, message: 'لو الإيميل موجود، هتوصلك رسالة فيها الكود' });
     }
+    console.log(`[password-reset] كود إعادة تعيين كلمة السر لـ ${row.email}: ${code}`);
     console.log(`[password-reset] رابط إعادة تعيين كلمة السر لـ ${row.email}: ${link}`);
     if (process.env.NODE_ENV !== 'production') {
-      return res.json({ ok: true, devLink: link, message: 'الرابط جاهز — استخدمه خلال 30 دقيقة' });
+      return res.json({ ok: true, devLink: link, devCode: code, message: 'الكود جاهز (وضع التطوير) — استخدمه خلال 30 دقيقة' });
     }
     return res.json({ ok: true, message: 'فشل إرسال الإيميل حالياً — جرب بعد شوية أو تواصل مع الدعم' });
   }
 
-  res.json({ ok: true, message: 'لو الإيميل موجود، هتوصلك رسالة فيها الرابط' });
+  res.json({ ok: true, message: 'لو الإيميل موجود، هتوصلك رسالة فيها الكود' });
+}));
+
+router.post('/verify-code', forgotLimiter, validate(studentVerifyCodeSchema), ah(async (req, res) => {
+  const { email, code } = req.body;
+  const row = await db.get('SELECT id, reset_code_hash, reset_expires FROM customers WHERE email = ?', [email]);
+  const valid = row && row.reset_code_hash === sha256(String(code).trim()) && row.reset_expires > new Date().toISOString();
+  if (!valid) return res.status(400).json({ error: 'الكود غير صحيح أو انتهت صلاحيته — اطلب كود جديد' });
+  res.json({ ok: true });
 }));
 
 router.post('/reset', validate(studentResetSchema), ah(async (req, res) => {
-  const { token, password } = req.body;
-  const row = await db.get('SELECT id FROM customers WHERE reset_token_hash = ? AND reset_expires > ?',
-    [sha256(token), new Date().toISOString()]);
-  if (!row) return res.status(400).json({ error: 'الرابط غير صالح أو انتهت صلاحيته — اطلب رابط جديد' });
-  await db.run("UPDATE customers SET password_hash = ?, reset_token_hash = '', reset_expires = '' WHERE id = ?",
+  const { token = '', email = '', code = '', password } = req.body;
+
+  let row;
+  if (token) {
+    row = await db.get('SELECT id FROM customers WHERE reset_token_hash = ? AND reset_expires > ?',
+      [sha256(token), new Date().toISOString()]);
+    if (!row) return res.status(400).json({ error: 'الرابط غير صالح أو انتهت صلاحيته — اطلب رابط جديد' });
+  } else {
+    row = await db.get('SELECT id, reset_code_hash, reset_expires FROM customers WHERE email = ?', [email]);
+    const valid = row && row.reset_code_hash === sha256(String(code).trim()) && row.reset_expires > new Date().toISOString();
+    if (!valid) return res.status(400).json({ error: 'الكود غير صحيح أو انتهت صلاحيته — اطلب كود جديد' });
+  }
+
+  await db.run("UPDATE customers SET password_hash = ?, reset_token_hash = '', reset_code_hash = '', reset_expires = '' WHERE id = ?",
     [bcrypt.hashSync(password, 10), row.id]);
   await revokeAllSessions(row.id, 'customer');
   await audit(0, 'student_password_reset', `student#${row.id}`, req.ip);
@@ -196,7 +226,7 @@ router.post('/reset', validate(studentResetSchema), ah(async (req, res) => {
 /* ---------------- Profile ---------------- */
 router.post('/change-password', requireCustomer, validate(studentPasswordChangeSchema), ah(async (req, res) => {
   const row = await db.get('SELECT * FROM customers WHERE id = ?', [req.customer.id]);
-  if (!row.password_hash) return res.status(400).json({ error: 'حسابك مسجل بجوجل/فيسبوك — مفيش كلمة سر لتغييرها' });
+  if (!row.password_hash) return res.status(400).json({ error: 'حسابك مسجل بجوجل — مفيش كلمة سر لتغييرها' });
   if (!bcrypt.compareSync(req.body.current_password, row.password_hash)) {
     return res.status(400).json({ error: 'كلمة السر الحالية غير صحيحة' });
   }
@@ -385,10 +415,7 @@ router.get('/progress', requireCustomer, ah(async (req, res) => {
 /* ---------------- Social login status ---------------- */
 router.get('/social-status', ah(async (req, res) => {
   const cfg = await oauthConfig();
-  res.json({
-    google: Boolean(cfg.googleId && cfg.googleSecret),
-    facebook: Boolean(cfg.fbId && cfg.fbSecret)
-  });
+  res.json({ google: Boolean(cfg.googleId && cfg.googleSecret) });
 }));
 
 /* ---------------- OAuth helpers ---------------- */
@@ -411,36 +438,38 @@ function verifyOAuthState(req, res) {
 }
 
 async function completeOAuth(res, profile) {
-  const email = profile.email || `oauth_${profile.provider}_${profile.id}@local`;
-  const exists = await db.get(`SELECT * FROM customers WHERE email = ? OR ${profile.provider === 'google' ? 'google_id' : 'facebook_id'} = ?`, [email, profile.id]);
+  const base = requestBaseUrl(res.req);
+  const email = profile.email || `oauth_google_${profile.id}@local`;
+  const exists = await db.get('SELECT * FROM customers WHERE email = ? OR google_id = ?', [email, profile.id]);
   let c = exists;
   if (c) {
-    await db.run(`UPDATE customers SET ${profile.provider === 'google' ? 'google_id' : 'facebook_id'} = ?, last_login = ? WHERE id = ?`,
+    await db.run('UPDATE customers SET google_id = ?, last_login = ? WHERE id = ?',
       [profile.id, new Date().toISOString(), c.id]);
   } else {
-    const info = await db.run(`INSERT INTO customers (email, name, ${profile.provider === 'google' ? 'google_id' : 'facebook_id'}, status, created_at)
+    const info = await db.run(`INSERT INTO customers (email, name, google_id, status, created_at)
       VALUES (?, ?, ?, 'pending', ?)`,
       [email, profile.name || email, profile.id, new Date().toISOString()]);
     c = { id: info.lastInsertRowid, email, name: profile.name || email, status: 'pending' };
-    await audit(0, 'student_oauth_register', `${profile.provider}: ${email} — قيد المراجعة`, res.req.ip);
+    await audit(0, 'student_oauth_register', `google: ${email} — قيد المراجعة`, res.req.ip);
   }
   if (c.status && c.status !== 'active') {
-    await audit(0, 'student_oauth_blocked', `${profile.provider}: ${email} — ${c.status}`, res.req.ip);
-    return res.redirect(`${BASE_URL}/student/login?error=pending`);
+    await audit(0, 'student_oauth_blocked', `google: ${email} — ${c.status}`, res.req.ip);
+    return res.redirect(`${base}/student/login?error=pending`);
   }
   const rawToken = await createSession(c.id, res.req.headers['user-agent'], res.req.ip, 'customer');
   setCustomerCookie(res, rawToken);
-  await audit(0, 'student_oauth_login', `${profile.provider}: ${email}`, res.req.ip);
-  res.redirect(`${BASE_URL}/student/account?social=1`);
+  await audit(0, 'student_oauth_login', `google: ${email}`, res.req.ip);
+  res.redirect(`${base}/student/account?social=1`);
 }
 
 /* ---------------- Google ---------------- */
 router.get('/auth/google', ah(async (req, res) => {
   const cfg = await oauthConfig();
   if (!cfg.googleId) return res.status(503).json({ error: 'تسجيل جوجل غير متاح حالياً — سجّل بالإيميل أو كلم مستر أحمد على الواتساب' });
+  const base = requestBaseUrl(req);
   const params = new URLSearchParams({
     client_id: cfg.googleId,
-    redirect_uri: `${BASE_URL}/api/customer/auth/google/callback`,
+    redirect_uri: `${base}/api/customer/auth/google/callback`,
     response_type: 'code',
     scope: 'openid email profile',
     state: oauthState(req, res)
@@ -450,8 +479,9 @@ router.get('/auth/google', ah(async (req, res) => {
 
 router.get('/auth/google/callback', ah(async (req, res) => {
   const cfg = await oauthConfig();
-  if (!verifyOAuthState(req, res)) return res.redirect(`${BASE_URL}/student/login?error=state`);
-  if (req.query.error) return res.redirect(`${BASE_URL}/student/login?error=denied`);
+  const base = requestBaseUrl(req);
+  if (!verifyOAuthState(req, res)) return res.redirect(`${base}/student/login?error=state`);
+  if (req.query.error) return res.redirect(`${base}/student/login?error=denied`);
   try {
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -460,60 +490,20 @@ router.get('/auth/google/callback', ah(async (req, res) => {
         code: String(req.query.code),
         client_id: cfg.googleId,
         client_secret: cfg.googleSecret,
-        redirect_uri: `${BASE_URL}/api/customer/auth/google/callback`,
+        redirect_uri: `${base}/api/customer/auth/google/callback`,
         grant_type: 'authorization_code'
       })
     });
     const tokens = await tokenRes.json();
-    if (!tokens.access_token) return res.redirect(`${BASE_URL}/student/login?error=token`);
+    if (!tokens.access_token) return res.redirect(`${base}/student/login?error=token`);
     const meRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
     const me = await meRes.json();
-    if (!me.sub) return res.redirect(`${BASE_URL}/student/login?error=profile`);
-    await completeOAuth(res, { provider: 'google', id: me.sub, email: me.email, name: me.name });
+    if (!me.sub) return res.redirect(`${base}/student/login?error=profile`);
+    await completeOAuth(res, { id: me.sub, email: me.email, name: me.name });
   } catch (_) {
-    res.redirect(`${BASE_URL}/student/login?error=server`);
-  }
-}));
-
-/* ---------------- Facebook ---------------- */
-router.get('/auth/facebook', ah(async (req, res) => {
-  const cfg = await oauthConfig();
-  if (!cfg.fbId) return res.status(503).json({ error: 'تسجيل فيسبوك غير متاح حالياً — سجّل بالإيميل أو كلم مستر أحمد على الواتساب' });
-  const params = new URLSearchParams({
-    client_id: cfg.fbId,
-    redirect_uri: `${BASE_URL}/api/customer/auth/facebook/callback`,
-    scope: 'email',
-    state: oauthState(req, res)
-  });
-  res.redirect(`https://www.facebook.com/v19.0/dialog/oauth?${params}`);
-}));
-
-router.get('/auth/facebook/callback', ah(async (req, res) => {
-  const cfg = await oauthConfig();
-  if (!verifyOAuthState(req, res)) return res.redirect(`${BASE_URL}/student/login?error=state`);
-  if (req.query.error) return res.redirect(`${BASE_URL}/student/login?error=denied`);
-  try {
-    const tokenRes = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?${new URLSearchParams({
-      client_id: cfg.fbId,
-      client_secret: cfg.fbSecret,
-      redirect_uri: `${BASE_URL}/api/customer/auth/facebook/callback`,
-      code: String(req.query.code)
-    })}`);
-    const tokens = await tokenRes.json();
-    if (!tokens.access_token) return res.redirect(`${BASE_URL}/student/login?error=token`);
-    const proof = crypto.createHmac('sha256', cfg.fbSecret).update(tokens.access_token).digest('hex');
-    const meRes = await fetch(`https://graph.facebook.com/me?${new URLSearchParams({
-      fields: 'id,name,email',
-      access_token: tokens.access_token,
-      appsecret_proof: proof
-    })}`);
-    const me = await meRes.json();
-    if (!me.id) return res.redirect(`${BASE_URL}/student/login?error=profile`);
-    await completeOAuth(res, { provider: 'facebook', id: me.id, email: me.email, name: me.name });
-  } catch (_) {
-    res.redirect(`${BASE_URL}/student/login?error=server`);
+    res.redirect(`${base}/student/login?error=server`);
   }
 }));
 

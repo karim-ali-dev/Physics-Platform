@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Upload, Trash2, Loader2, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
 import { api } from '../../api';
+import { split12, join24 } from '../../utils/schedule';
 
 export function Field({ label, required, children, hint }) {
   return (
@@ -29,6 +30,35 @@ export function Select({ options, ...props }) {
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
     </select>
+  );
+}
+
+/* اختيار وقت بنظام 12 ساعة (ص/م) — القيمة داخلياً "HH:MM" بنظام 24 ساعة */
+export function TimePicker12({ value, onChange, className = '' }) {
+  const { h, min, pm } = split12(value);
+  const hourOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+  const minuteOptions = Array.from({ length: 12 }, (_, i) => i * 5);
+  if (!minuteOptions.includes(min)) minuteOptions.push(min);
+  const btn = (sel, on) =>
+    `rounded-md px-3 py-2 text-xs font-black transition-colors ${sel ? 'bg-brand-600 text-pure' : 'text-white/55 hover:text-white'}`;
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <select className="input w-20" value={h} onChange={(e) => onChange(join24(e.target.value, min, pm))}>
+        {hourOptions.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+      <span className="font-black text-white/35">:</span>
+      <select className="input w-24" value={min} onChange={(e) => onChange(join24(h, e.target.value, pm))}>
+        {minuteOptions.sort((a, b) => a - b).map((x) => <option key={x} value={x}>{String(x).padStart(2, '0')}</option>)}
+      </select>
+      <div className="flex overflow-hidden rounded-xl border border-white/10">
+        <button type="button" className={btn(!pm, false)} onClick={() => onChange(join24(h, min, false))}>
+          ص
+        </button>
+        <button type="button" className={btn(pm, false)} onClick={() => onChange(join24(h, min, true))}>
+          م
+        </button>
+      </div>
+    </div>
   );
 }
 

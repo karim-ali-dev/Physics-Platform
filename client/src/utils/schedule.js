@@ -100,7 +100,7 @@ export function fmtTime24(str) {
 export function nextSession(items, now, grade = null) {
   const rows = items.filter((r) => r.active !== 0 && (!grade || r.grade === grade));
   const nowMin = now.hour * 60 + now.minute;
-  const todayIdx = now.weekdayIndex;
+  const todayIdx = (now.weekdayIndex + 1) % 7;
   let best = null;
   for (const r of rows) {
     const start = parseTime24(r.start_time);
